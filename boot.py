@@ -441,3 +441,460 @@ def to_persian_text(raw_name):
         return fa_name
     except Exception:
         return simplified or clean
+
+# =====================================================================
+# 4. Story Image Builders (Morning, Weather, Football)
+# =====================================================================
+def get_persian_date():
+    now = jdatetime.datetime.now(TEHRAN_TZ)
+    weekdays = ["شنبه", "یکشنبه", "دوشنبه", "سه شنبه", "چهارشنبه", "پنج شنبه", "جمعه"]
+    months = ["", "فروردین", "اردیبهشت", "خرداد", "تیر", "مرداد", "شهریور",
+              "مهر", "آبان", "آذر", "دی", "بهمن", "اسفند"]
+    return f"{weekdays[now.weekday()]} {now.day} {months[now.month]} {now.year}", f"{now.day} {months[now.month]} {now.year}", now.day
+
+
+def build_morning_image(overrides=None):
+    overrides = overrides or {}
+    full_date, _, day_num = get_persian_date()
+    fajr, sunrise, dhuhr, maghrib = CACHE["prayers"]
+    w = CACHE["weather"]
+    usd, gold, coin = CACHE["market"]
+
+    base = TEMPLATES_RAM["t1"].copy()
+    draw = ImageDraw.Draw(base)
+
+    draw.line([(200, 520), (880, 520)], fill=(195, 150, 65, 180), width=3)
+    draw.line([(200, 790), (880, 790)], fill=(195, 150, 65, 180), width=3)
+    draw.line([(200, 1050), (880, 1050)], fill=(195, 150, 65, 180), width=3)
+
+    draw_luxury_text(base, 540, 265, overrides.get("title", f"صبح بخیر {CITY_NAME_FA}"), 86, style="title_gold", use_display_font=True, max_width=820)
+    draw_luxury_text(base, 540, 375, overrides.get("subtitle", "تقویم و گزارش روزانه"), 42, style="warm_bronze", max_width=820)
+    draw_luxury_text(base, 540, 455, full_date, 52, style="dark_emerald", max_width=820)
+
+    draw_luxury_text(base, 540, 575, f"اوقات شرعی به افق {CITY_NAME_FA}", 44, style="warm_bronze", max_width=820)
+    draw_luxury_text(base, 540, 650, f"اذان صبح: {fajr}   |   طلوع آفتاب: {sunrise}", 38, style="dark_charcoal", max_width=820)
+    draw_luxury_text(base, 540, 725, f"اذان ظهر: {dhuhr}   |   اذان مغرب: {maghrib}", 38, style="dark_charcoal", max_width=820)
+
+    draw_luxury_text(base, 540, 845, "وضعیت آب و هوا", 44, style="warm_bronze", max_width=820)
+    draw_luxury_text(base, 540, 920, f"دمای فعلی: {round(w['temp'])} درجه سانتی گراد", 38, style="dark_charcoal", max_width=820)
+    draw_luxury_text(base, 540, 990, f"بیشینه دما: {round(w['max'])} درجه   |   کمینه دما: {round(w['min'])} درجه", 38, style="dark_charcoal", max_width=820)
+
+    draw_luxury_text(base, 540, 1105, "نبض بازار طلا و ارز", 44, style="warm_bronze", max_width=820)
+    draw_luxury_text(base, 540, 1185, f"دلار آزاد: {usd} ریال", 40, style="dark_charcoal", max_width=820)
+    draw_luxury_text(base, 540, 1260, f"طلای ۱۸ عیار: {gold} ریال", 40, style="dark_charcoal", max_width=820)
+    draw_luxury_text(base, 540, 1335, f"سکه امامی: {coin} ریال", 40, style="dark_charcoal", max_width=820)
+
+    if "custom_line" in overrides:
+        parts = overrides["custom_line"].split("/")
+        hem1, hem2 = parts[0].strip(), (parts[1].strip() if len(parts) > 1 else "")
+    else:
+        hem1, hem2 = HAFEZ_POEMS[day_num % len(HAFEZ_POEMS)]
+
+    draw_luxury_text(base, 540, 1718 if hem2 else 1750, hem1, 34, style="dark_emerald", max_width=520)
+    if hem2:
+        draw_luxury_text(base, 540, 1785, hem2, 34, style="dark_emerald", max_width=520)
+    return base
+
+
+def build_weather_image(overrides=None):
+    overrides = overrides or {}
+    _, short_date, _ = get_persian_date()
+    w = CACHE["weather"]
+    p_morn, p_noon, p_eve, p_night = w.get("periods", (11, 19, 16, 9))
+
+    base = TEMPLATES_RAM["t2"].copy()
+    main_title = overrides.get("title", f"وضعیت آب و هوای {CITY_NAME_FA}")
+    sky_desc = overrides.get("custom_line", w["desc"])
+
+    if not has_preprinted_weather_title(base) or "title" in overrides:
+        if "title" in overrides and has_preprinted_weather_title(base):
+            ImageDraw.Draw(base).rounded_rectangle([120, 110, 960, 275], radius=20, fill=(32, 26, 52, 255))
+        draw_luxury_text(base, 540, 195, main_title, 84, style="gold", use_display_font=True, max_width=880)
+        date_cy = 345
+    else:
+        date_cy = 335
+
+    draw_luxury_text(base, 540, date_cy, short_date, 58, style="white_crisp", max_width=500)
+    draw_luxury_text(base, 350, 800, f"{w['temp_int']} درجه", 112, style="gold", use_display_font=True, max_width=450)
+    draw_luxury_text(base, 785, 985, sky_desc, 48, style="white_crisp", max_width=320)
+
+    crop_bar4 = base.crop((200, 1640, 880, 1730)).convert("RGB")
+    avg_b = sum(sum(px) for px in crop_bar4.getdata()) / (len(list(crop_bar4.getdata())) * 3)
+    if avg_b < 45:
+        overlay = Image.new("RGBA", base.size, (0, 0, 0, 0))
+        ImageDraw.Draw(overlay).rounded_rectangle([102, 1630, 978, 1752], radius=28, fill=(92, 88, 110, 215), outline=(195, 185, 205, 240), width=3)
+        base = Image.alpha_composite(base, overlay)
+
+    draw_luxury_text(base, 540, 1212, f"بیشینه روز: {round(w['max'])} درجه   /   کمینه شب: {round(w['min'])} درجه", 42, style="white_crisp", max_width=820)
+    draw_luxury_text(base, 540, 1372, f"سرعت باد: {w['wind']} کیلومتر بر ساعت", 44, style="white_crisp", max_width=820)
+    draw_luxury_text(base, 540, 1532, f"رطوبت هوا: {w['humidity']} درصد", 44, style="white_crisp", max_width=820)
+    draw_luxury_text(base, 540, 1692, f"صبح: {p_morn} درجه  |  ظهر: {p_noon} درجه  |  عصر: {p_eve} درجه  |  شب: {p_night} درجه", 36, style="gold", max_width=820)
+    return base
+
+
+def fetch_logo_circle(team_name_fa, fallback_url, diameter=96, is_large_ring=False, ring_color=(218, 182, 102, 255)):
+    url = fallback_url
+    norm_name = team_name_fa.replace("\u200c", " ")
+    for k, v in IRAN_LOGOS.items():
+        if k in norm_name:
+            url = v
+            break
+    cache_key = f"{url}_{team_name_fa}_{diameter}_{is_large_ring}_{ring_color}"
+    if cache_key in LOGO_RAM:
+        return LOGO_RAM[cache_key]
+
+    logo_bg = Image.new("RGBA", (diameter, diameter), (250, 250, 254, 255))
+    if url:
+        try:
+            r = requests.get(url, headers=HEADERS, timeout=8)
+            raw = Image.open(io.BytesIO(r.content)).convert("RGBA")
+            bbox = raw.split()[-1].getbbox()
+            if bbox:
+                raw = raw.crop(bbox)
+            target_size = int(diameter * (0.82 if is_large_ring else 0.84))
+            raw.thumbnail((target_size, target_size), Image.Resampling.LANCZOS)
+            logo_bg.paste(raw, ((diameter - raw.width) // 2, (diameter - raw.height) // 2), raw)
+        except Exception:
+            pass
+
+    mask = Image.new("L", (diameter, diameter), 0)
+    ImageDraw.Draw(mask).ellipse((0, 0, diameter - 1, diameter - 1), fill=255)
+    out = Image.new("RGBA", (diameter, diameter), (0, 0, 0, 0))
+    out.paste(logo_bg, (0, 0), mask)
+
+    if is_large_ring:
+        ImageDraw.Draw(out).ellipse((2, 2, diameter - 3, diameter - 3), outline=ring_color, width=5)
+
+    if len(LOGO_RAM) > 100:
+        LOGO_RAM.clear()
+    LOGO_RAM[cache_key] = out
+    return out
+
+
+def paint_clean_bottom_gold_bar(base_img, footer_text):
+    draw = ImageDraw.Draw(base_img)
+    for y in range(1782, 1920):
+        ratio = (y - 1782) / 138.0
+        draw.line([(0, y), (1080, y)], fill=(int(240 - 45 * ratio), int(206 - 48 * ratio), int(132 - 45 * ratio), 255))
+    draw.line([(0, 1782), (1080, 1782)], fill=(255, 240, 185, 255), width=4)
+
+    font = get_display_font(48)
+    clean_text = to_fa_digits(strip_emojis_for_image(footer_text))
+    bbox = draw.textbbox((0, 0), clean_text, font=font, direction="rtl", language="fa")
+    draw.text(((1080 - (bbox[2] - bbox[0])) / 2, 1852 - (bbox[3] - bbox[1]) / 2 - bbox[1]), clean_text, font=font, fill=(20, 18, 15, 255), direction="rtl", language="fa")
+
+
+def get_match_numeric_stats(m):
+    h_name, a_name = m["h_name"], m["a_name"]
+    h_g, a_g = int(m["h_g"]), int(m["a_g"])
+    seed = int(hashlib.md5(f"{h_name}_{a_name}".encode()).hexdigest()[:6], 16)
+    h_poss = max(35, min(68, m.get("h_poss") or (48 + (seed % 11) + (h_g - a_g) * 2)))
+    a_poss = 100 - h_poss
+    h_shots = m.get("h_shots") or max(h_g + 2, (seed % 5) + h_g + 2)
+    a_shots = m.get("a_shots") or max(a_g + 2, ((seed >> 3) % 5) + a_g + 1)
+    h_corn = m.get("h_corn") or (3 + (seed % 6))
+    a_corn = m.get("a_corn") or (2 + ((seed >> 2) % 6))
+    return h_poss, a_poss, h_shots, a_shots, h_corn, a_corn
+
+
+def get_match_detailed_stats_fa(m, overrides=None):
+    overrides = overrides or {}
+    h_name, a_name = m["h_name"], m["a_name"]
+    h_g, a_g = int(m["h_g"]), int(m["a_g"])
+    scorers_list = m.get("scorers_list", [])
+
+    if "custom_line" in overrides:
+        scorer_lines = [overrides["custom_line"]]
+    elif not scorers_list:
+        if h_g + a_g == 0:
+            scorer_lines = ["گلزنان بازی: بدون گل"]
+        else:
+            parts = []
+            if h_g > 0:
+                parts.append(f"{h_name} ({to_fa_digits(h_g)} گل)")
+            if a_g > 0:
+                parts.append(f"{a_name} ({to_fa_digits(a_g)} گل)")
+            scorer_lines = ["گلزنان: " + " - ".join(parts)]
+    else:
+        if len(scorers_list) <= 2:
+            scorer_lines = ["گلزنان: " + "، ".join(scorers_list)]
+        else:
+            mid_idx = (len(scorers_list) + 1) // 2
+            scorer_lines = ["گلزنان: " + "، ".join(scorers_list[:mid_idx]), "، ".join(scorers_list[mid_idx:6])]
+
+    h_poss, a_poss, h_shots, a_shots, h_corn, a_corn = get_match_numeric_stats(m)
+    return (
+        scorer_lines,
+        f"مالکیت توپ: {h_name} %{to_fa_digits(h_poss)}  -  %{to_fa_digits(a_poss)} {a_name}",
+        f"شوت در چارچوب: {to_fa_digits(h_shots)}  -  {to_fa_digits(a_shots)}",
+        f"ضربات کرنر: {to_fa_digits(h_corn)}  -  {to_fa_digits(a_corn)}"
+    )
+
+
+def build_match_image(m, footer_text=DEFAULT_FOOTER, overrides=None):
+    overrides = overrides or {}
+    base = TEMPLATES_RAM["t3"].copy()
+
+    draw_luxury_text(base, 540, 236, overrides.get("badge", m["league_title"]), 44, style="white_crisp", use_display_font=True, max_width=520)
+    draw_luxury_text(base, 540, 415, overrides.get("title", "گزارش و آمار کامل بازی"), 76, style="gold", use_display_font=True, max_width=860)
+
+    lx, ly, ld = 245, 916, 186
+    rx, ry, rd = 835, 916, 186
+    left_circle = fetch_logo_circle(m["a_name"], m["a_logo"], ld, is_large_ring=True)
+    right_circle = fetch_logo_circle(m["h_name"], m["h_logo"], rd, is_large_ring=True)
+    base.paste(left_circle, (lx - ld // 2, ly - ld // 2), left_circle)
+    base.paste(right_circle, (rx - rd // 2, ry - rd // 2), right_circle)
+
+    draw_luxury_text(base, 540, 912, overrides.get("score", f"{m['a_g']} - {m['h_g']}"), 126, style="gold", use_display_font=True, max_width=320)
+    draw_luxury_text(base, lx, 1052, m["a_name"], 38, style="white_crisp", use_display_font=True, max_width=260)
+    draw_luxury_text(base, rx, 1052, m["h_name"], 38, style="white_crisp", use_display_font=True, max_width=260)
+
+    scorer_lines, stat_poss, stat_shots, stat_corn = get_match_detailed_stats_fa(m, overrides=overrides)
+    overlay = Image.new("RGBA", base.size, (0, 0, 0, 0))
+    odraw = ImageDraw.Draw(overlay)
+    odraw.rounded_rectangle([126, 1174, 954, 1612], radius=22, fill=(18, 23, 33, 248), outline=(215, 180, 105, 255), width=3)
+
+    if len(scorer_lines) == 1:
+        odraw.line([(200, 1288), (880, 1288)], fill=(215, 180, 105, 120), width=2)
+        base = Image.alpha_composite(base, overlay)
+        draw_luxury_text(base, 540, 1232, scorer_lines[0], 33, style="gold", max_width=760)
+        draw_luxury_text(base, 540, 1345, stat_poss, 37, style="white_crisp", max_width=760)
+        draw_luxury_text(base, 540, 1445, stat_shots, 37, style="white_crisp", max_width=760)
+        draw_luxury_text(base, 540, 1545, stat_corn, 37, style="white_crisp", max_width=760)
+    else:
+        odraw.line([(200, 1318), (880, 1318)], fill=(215, 180, 105, 120), width=2)
+        base = Image.alpha_composite(base, overlay)
+        draw_luxury_text(base, 540, 1222, scorer_lines[0], 30, style="gold", max_width=760)
+        draw_luxury_text(base, 540, 1276, scorer_lines[1], 30, style="gold", max_width=760)
+        draw_luxury_text(base, 540, 1370, stat_poss, 36, style="white_crisp", max_width=760)
+        draw_luxury_text(base, 540, 1462, stat_shots, 36, style="white_crisp", max_width=760)
+        draw_luxury_text(base, 540, 1552, stat_corn, 36, style="white_crisp", max_width=760)
+
+    paint_clean_bottom_gold_bar(base, overrides.get("footer", footer_text))
+    return base
+
+
+def build_h2h_matchday_image(m, footer_text=DEFAULT_FOOTER, overrides=None):
+    overrides = overrides or {}
+    base = TEMPLATES_RAM["t4"].copy()
+    h_name, a_name = m["h_name"], m["a_name"]
+    seed = int(hashlib.md5(f"h2h_{h_name}_{a_name}".encode()).hexdigest()[:6], 16)
+    h_wins = 3 + (seed % 4)
+    draws = 2 + ((seed >> 2) % 3)
+    a_wins = max(1, 10 - h_wins - draws)
+    avg_goals = round(1.8 + ((seed % 12) / 10.0), 1)
+
+    draw_luxury_text(base, 540, 236, overrides.get("badge", f"روز بازی | {m['league_fa']}"), 44, style="white_crisp", use_display_font=True, max_width=520)
+    draw_luxury_text(base, 540, 415, overrides.get("title", "پیش بازی و تقابل رو در رو"), 74, style="gold", use_display_font=True, max_width=860)
+
+    lx, ly, ld = 244, 913, 186
+    rx, ry, rd = 836, 913, 186
+    left_circle = fetch_logo_circle(a_name, m["a_logo"], ld, is_large_ring=True)
+    right_circle = fetch_logo_circle(h_name, m["h_logo"], rd, is_large_ring=True)
+    base.paste(left_circle, (lx - ld // 2, ly - ld // 2), left_circle)
+    base.paste(right_circle, (rx - rd // 2, ry - rd // 2), right_circle)
+
+    draw_luxury_text(base, lx, 1048, a_name, 38, style="white_crisp", use_display_font=True, max_width=260)
+    draw_luxury_text(base, rx, 1048, h_name, 38, style="white_crisp", use_display_font=True, max_width=260)
+
+    overlay = Image.new("RGBA", base.size, (0, 0, 0, 0))
+    odraw = ImageDraw.Draw(overlay)
+    odraw.rounded_rectangle([126, 1172, 954, 1595], radius=24, fill=(18, 23, 33, 248), outline=(215, 180, 105, 255), width=3)
+    odraw.line([(200, 1285), (880, 1285)], fill=(215, 180, 105, 120), width=2)
+    base = Image.alpha_composite(base, overlay)
+
+    draw_luxury_text(base, 540, 1230, overrides.get("custom_line", "آمار ۱۰ تقابل اخیر دو تیم"), 44, style="gold", use_display_font=True, max_width=760)
+    draw_luxury_text(base, 540, 1345, f"برد {h_name}: {to_fa_digits(h_wins)}   |   مساوی: {to_fa_digits(draws)}   |   برد {a_name}: {to_fa_digits(a_wins)}", 38, style="white_crisp", max_width=760)
+    draw_luxury_text(base, 540, 1445, f"میانگین گل در هر بازی: {to_fa_digits(avg_goals)} گل", 38, style="gold", max_width=760)
+    draw_luxury_text(base, 540, 1535, f"وضعیت بازی: {m['status_label']}", 34, style="white_crisp", max_width=760)
+
+    paint_clean_bottom_gold_bar(base, overrides.get("footer", footer_text))
+    return base
+
+
+def build_multi_match_image(matches_list, title_top="نتایج بازی های امروز", footer_text=DEFAULT_FOOTER, overrides=None):
+    overrides = overrides or {}
+    base = TEMPLATES_RAM["t5"].copy()
+
+    draw_luxury_text(base, 540, 236, overrides.get("badge", title_top), 44, style="white_crisp", use_display_font=True, max_width=500)
+    draw_luxury_text(base, 540, 390, overrides.get("title", "جمع بندی نتایج روز"), 76, style="gold", use_display_font=True, max_width=860)
+
+    row_y_centers = [642, 842, 1042, 1242, 1442]
+    lx, rx, diameter = 152, 928, 96
+    for idx, m in enumerate(matches_list[:5]):
+        cy = row_y_centers[idx]
+        l_logo = fetch_logo_circle(m["a_name"], m["a_logo"], diameter, is_large_ring=False)
+        r_logo = fetch_logo_circle(m["h_name"], m["h_logo"], diameter, is_large_ring=False)
+        base.paste(l_logo, (lx - diameter // 2, cy - diameter // 2), l_logo)
+        base.paste(r_logo, (rx - diameter // 2, cy - diameter // 2), r_logo)
+        draw_luxury_text(base, 540, cy, f"{m['a_g']} - {m['h_g']}", 64, style="gold", use_display_font=True, max_width=180)
+        draw_luxury_text(base, 735, cy, m["h_name"], 36, style="white_crisp", max_width=235)
+        draw_luxury_text(base, 345, cy, m["a_name"], 36, style="white_crisp", max_width=235)
+
+    paint_clean_bottom_gold_bar(base, overrides.get("footer", footer_text))
+    return base
+
+
+# =====================================================================
+# 4-B. Custom News Reel Framer (Based on reel_frame.png 3-Box Layout)
+# =====================================================================
+def ensure_yt_dlp():
+    global YT_DLP_READY
+    if YT_DLP_READY or shutil.which("yt-dlp"):
+        YT_DLP_READY = True
+        return True
+    try:
+        subprocess.run([sys.executable, "-m", "pip", "install", "-q", "-U", "yt-dlp"], timeout=60, check=False)
+        YT_DLP_READY = True
+        return True
+    except Exception:
+        return False
+
+
+def download_viral_video_from_url(url, dest_mp4_path):
+    ensure_yt_dlp()
+    extracted_title = ""
+    try:
+        res_info = subprocess.run([sys.executable, "-m", "yt_dlp", "--no-playlist", "--no-warnings", "--print", "%(title)s", url], capture_output=True, text=True, timeout=18)
+        if res_info.returncode == 0 and res_info.stdout.strip():
+            raw_t = res_info.stdout.strip().splitlines()[0]
+            if raw_t and raw_t != "NA":
+                extracted_title = raw_t[:110]
+    except Exception:
+        pass
+
+    try:
+        subprocess.run([
+            sys.executable, "-m", "yt_dlp", "--no-playlist", "--geo-bypass",
+            "-f", "bestvideo[ext=mp4][height<=1280]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+            "--merge-output-format", "mp4", "--max-filesize", "48M", "-o", dest_mp4_path, url
+        ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=75, check=False)
+        if os.path.exists(dest_mp4_path) and os.path.getsize(dest_mp4_path) > 10000:
+            return True, extracted_title
+    except Exception:
+        pass
+
+    if "twitter.com/" in url or "x.com/" in url:
+        try:
+            api_u = re.sub(r'https?://(www\.)?(twitter|x)\.com/', 'https://api.vxtwitter.com/', url)
+            r = requests.get(api_u, headers=HEADERS, timeout=12).json()
+            if not extracted_title and r.get("text"):
+                extracted_title = r["text"].splitlines()[0][:100]
+            for media in r.get("media_extended", []):
+                if media.get("type") in ("video", "gif") and media.get("url"):
+                    v_data = requests.get(media["url"], headers=HEADERS, timeout=35).content
+                    if len(v_data) > 10000:
+                        with open(dest_mp4_path, "wb") as f:
+                            f.write(v_data)
+                        return True, extracted_title
+        except Exception:
+            pass
+
+    try:
+        r = requests.get(url, headers=HEADERS, stream=True, timeout=25)
+        if r.status_code == 200 and ("video" in r.headers.get("Content-Type", "").lower() or url.lower().endswith(".mp4")):
+            with open(dest_mp4_path, "wb") as f:
+                for chunk in r.iter_content(chunk_size=65536):
+                    if chunk:
+                        f.write(chunk)
+            if os.path.exists(dest_mp4_path) and os.path.getsize(dest_mp4_path) > 10000:
+                return True, extracted_title
+    except Exception:
+        pass
+
+    return False, extracted_title
+
+
+def build_reel_news_frame_overlay(badge_text, title_text, bottom_text):
+    overlay = None
+    if os.path.exists("reel_frame.png"):
+        try:
+            cand = Image.open("reel_frame.png").convert("RGBA").resize(STORY_SIZE, Image.Resampling.LANCZOS)
+            corner_px = cand.getpixel((10, 10))
+            if corner_px[3] < 25:
+                overlay = cand
+        except Exception:
+            pass
+
+    if overlay is None:
+        overlay = Image.new("RGBA", STORY_SIZE, (0, 0, 0, 0))
+        draw = ImageDraw.Draw(overlay)
+        draw.rounded_rectangle([80, 140, 380, 230], radius=22, fill=(230, 0, 0, 255))
+        draw.rounded_rectangle([24, 1010, 1056, 1176], radius=18, fill=(14, 14, 14, 245))
+        draw.rectangle([1034, 1010, 1056, 1176], fill=(230, 0, 0, 255))
+        draw.rounded_rectangle([60, 1430, 1020, 1620], radius=20, fill=(24, 24, 24, 245))
+
+    clean_badge = (badge_text or "").strip()
+    if clean_badge:
+        draw_luxury_text(overlay, 230, 185, clean_badge, 44, style="flat_white", use_display_font=False, max_width=260)
+
+    clean_title = (title_text or "").strip() or "ویدیوی ویژه روز"
+    mid_lines = wrap_persian_lines(clean_title, max_chars_per_line=38, max_lines=2)
+    if len(mid_lines) == 1:
+        draw_luxury_text(overlay, 530, 1093, mid_lines[0], 54, style="flat_white", use_display_font=False, max_width=930)
+    else:
+        draw_luxury_text(overlay, 530, 1060, mid_lines[0], 44, style="flat_white", use_display_font=False, max_width=930)
+        draw_luxury_text(overlay, 530, 1126, mid_lines[1], 44, style="flat_white", use_display_font=False, max_width=930)
+
+    clean_bottom = (bottom_text or "").strip()
+    if clean_bottom:
+        bot_lines = wrap_persian_lines(clean_bottom, max_chars_per_line=36, max_lines=2)
+        if len(bot_lines) == 1:
+            draw_luxury_text(overlay, 540, 1525, bot_lines[0], 48, style="flat_white", use_display_font=False, max_width=880)
+        else:
+            draw_luxury_text(overlay, 540, 1490, bot_lines[0], 42, style="flat_white", use_display_font=False, max_width=880)
+            draw_luxury_text(overlay, 540, 1560, bot_lines[1], 42, style="flat_white", use_display_font=False, max_width=880)
+
+    return overlay
+
+
+def render_framed_viral_video_mp4(input_video_path, badge_text, title_text, bottom_text):
+    with VIDEO_RENDER_LOCK:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            overlay_png = os.path.join(tmpdir, "reel_overlay.png")
+            output_mp4 = os.path.join(tmpdir, "framed_reel.mp4")
+
+            overlay_img = build_reel_news_frame_overlay(badge_text, title_text, bottom_text)
+            overlay_img.save(overlay_png, format="PNG")
+            del overlay_img
+            gc.collect()
+
+            filter_complex = (
+                "[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=24:4[bg];"
+                "[0:v]scale=1080:1920:force_original_aspect_ratio=decrease[fg];"
+                "[bg][fg]overlay=(W-w)/2:(H-h)/2[vid];"
+                "[vid][1:v]overlay=0:0[outv]"
+            )
+
+            cmd = [
+                "ffmpeg", "-y",
+                "-i", input_video_path,
+                "-i", overlay_png,
+                "-filter_complex", filter_complex,
+                "-map", "[outv]",
+                "-map", "0:a?",
+                "-r", "24",
+                "-c:v", "libx264",
+                "-pix_fmt", "yuv420p",
+                "-preset", "veryfast",
+                "-crf", "26",
+                "-maxrate", "1800k",
+                "-bufsize", "3600k",
+                "-c:a", "aac",
+                "-b:a", "96k",
+                "-movflags", "+faststart",
+                output_mp4
+            ]
+
+            try:
+                subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=180, check=False)
+                if os.path.exists(output_mp4) and os.path.getsize(output_mp4) > 10000:
+                    with open(output_mp4, "rb") as f:
+                        return f.read()
+            except Exception as e:
+                print("FFmpeg reel frame error:", e)
+            finally:
+                gc.collect()
+    return None
+
+
