@@ -1618,4 +1618,1146 @@ def check_all_football_free(state):
         except Exception:
             pass
 
+# =====================================================================
+# 8. Menus & Reply-Edit Handlers
+# =====================================================================
+def send_menu_keyboard(chat_id, text="✅ منوی ربات آماده است! از دکمه های پایین صفحه انتخاب کنید:"):
+    if not chat_id:
+        return
+    try:
+        requests.post(
+            f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage",
+            data={"chat_id": chat_id, "text": text, "reply_markup": BOT_MENU_KEYBOARD},
+            timeout=10
+        )
+    except Exception:
+        pass
 
+
+def build_league_selector_markup():
+    buttons = []
+    live_count = len(CACHE["live_match_ids"])
+    live_label = f"🔴 فوتبال های زنده در جریان امروز ({to_fa_digits(live_count)} بازی زنده)" if live_count > 0 else "🔴 فوتبال های زنده در جریان امروز"
+    buttons.append([{"text": live_label, "callback_data": "show_live_now"}])
+    for lg_key, lg_title in LEAGUE_CATEGORIES:
+        lg_info = CACHE["leagues"].get(lg_key, {})
+        count = len(lg_info.get("match_ids", []))
+        live_badge = " 🔴 (زنده)" if lg_info.get("has_live") else ""
+        count_txt = f" ({to_fa_digits(count)} بازی)" if count > 0 else ""
+        buttons.append([{"text": f"{lg_title}{live_badge}{count_txt}", "callback_data": f"showlg_{lg_key}"}])
+    buttons.append([{"text": "📊 ساخت پوستر تجمیعی ۵ بازی مهم روز", "callback_data": "mk_multi_today"}])
+    return json.dumps({"inline_keyboard": buttons})
+
+
+def send_league_selection_question(chat_id, message_id=None):
+    text = "⚽ کدوم بخش یا لیگ مد نظرته؟\n\n• برای دیدن تمامی بازی هایی که همین لحظه زنده در جریان هستند روی دکمه اول (🔴) بزنید.\n• یا یکی از لیگ های زیر را انتخاب کنید:"
+    markup = build_league_selector_markup()
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/{'editMessageText' if message_id else 'sendMessage'}"
+    payload = {"chat_id": chat_id, "text": text, "reply_markup": markup}
+    if message_id:
+        payload["message_id"] = message_id
+    try:
+        requests.post(url, data=payload, timeout=10)
+    except Exception:
+        pass
+
+
+def send_live_now_matches(chat_id, message_id=None):
+    live_ids, live_lines = CACHE["live_match_ids"], CACHE["live_lines"]
+    if live_lines:
+        text = "🔴 فهرست تمامی بازی های زنده در جریان امروز:\n\n" + "\n".join(live_lines) + "\n\n👇 روی هر بازی بزنید:"
+    else:
+        text = "🔴 در این لحظه هیچ بازی زنده ای در حال برگزاری نیست."
+    buttons = []
+    for mid in live_ids[:20]:
+        m = CACHE["matches_by_id"].get(mid)
+        if m:
+            buttons.append([{"text": f"📸 پوستر زنده (🔄): {m['h_name']} {to_fa_digits(m['h_g'])}-{to_fa_digits(m['a_g'])} {m['a_name']}", "callback_data": f"mkimg_{mid}"}])
+    buttons.append([{"text": "🔙 بازگشت به منوی لیگ ها", "callback_data": "back_leagues"}])
+    markup = json.dumps({"inline_keyboard": buttons})
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/{'editMessageText' if message_id else 'sendMessage'}"
+    payload = {"chat_id": chat_id, "text": text, "reply_markup": markup}
+    if message_id:
+        payload["message_id"] = message_id
+    try:
+        requests.post(url, data=payload, timeout=10)
+    except Exception:
+        pass
+
+
+def send_specific_league_matches(chat_id, lg_key, message_id=None):
+    lg_info = CACHE["leagues"].get(lg_key)
+    if not lg_info:
+        return
+    title, lines, m_ids = lg_info["title"], lg_info["lines"], lg_info["match_ids"]
+    if lines:
+        text = f"🏆 گزارش بازی های {title}:\n\n" + "\n".join(lines) + "\n\n👇 انتخاب نوع پوستر برای هر بازی:"
+    else:
+        text = f"🏆 {title}\n\n⚽ در حال حاضر بازی فعالی برای این لیگ ثبت نشده است."
+    buttons = []
+    for mid in m_ids[:12]:
+        m = CACHE["matches_by_id"].get(mid)
+        if m:
+            score_lbl = f"{m['status_emoji']} {m['h_name']} {to_fa_digits(m['h_g'])}-{to_fa_digits(m['a_g'])} {m['a_name']}"
+            buttons.append([
+                {"text": f"📸 آمار: {score_lbl}", "callback_data": f"mkimg_{mid}"},
+                {"text": "⚔ تقابل رو در رو", "callback_data": f"mkh2h_{mid}"}
+            ])
+    if len(m_ids) >= 2:
+        buttons.append([{"text": "📊 پوستر تجمیعی نتایج این لیگ", "callback_data": f"mkmulti_{lg_key}"}])
+    buttons.append([{"text": "🔙 بازگشت به انتخاب لیگ ها", "callback_data": "back_leagues"}])
+    markup = json.dumps({"inline_keyboard": buttons})
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/{'editMessageText' if message_id else 'sendMessage'}"
+    payload = {"chat_id": chat_id, "text": text, "reply_markup": markup}
+    if message_id:
+        payload["message_id"] = message_id
+    try:
+        requests.post(url, data=payload, timeout=10)
+    except Exception:
+        pass
+
+
+def send_settings_menu(chat_id, state):
+    footer = state.get("footer_text", DEFAULT_FOOTER)
+    badge = state.get("reel_badge", DEFAULT_REEL_BADGE)
+    hour = state.get("morning_hour", 7)
+    text = (
+        "⚙ تنظیمات و راهنمای ربات:\n\n"
+        f"🕒 ساعات فعالیت روزانه: {to_fa_digits(ACTIVE_START_HOUR)}:۰۰ صبح تا {to_fa_digits(ACTIVE_END_HOUR)}:۰۰ شب (تهران)\n"
+        f"📝 امضای پیش‌فرض (کادر پایین ریلز و پوسترها): «{footer}»\n"
+        f"🔴 برچسب پیش‌فرض کادر قرمز ریلزساز: «{badge}»\n"
+        f"⏰ ساعت ارسال صبحگاهی: {to_fa_digits(hour)}:۰۰ صبح\n\n"
+        "✨ ویرایش درجا با ریپلای روی عکس یا ویدیوی ریلز:\n"
+        "• بالا: متن کادر قرمز\n• وسط: متن کادر مشکی وسط\n• پایین: متن کادر مشکی پایین"
+    )
+    buttons = [
+        [{"text": "✏ تغییر امضای پایین پوسترها و ریلز", "callback_data": "set_footer"}],
+        [{"text": "🔴 تغییر برچسب پیش‌فرض کادر قرمز ریلز", "callback_data": "set_reel_badge"}],
+        [
+            {"text": "⏰ ۷ صبح", "callback_data": "sethour_7"},
+            {"text": "⏰ ۸ صبح", "callback_data": "sethour_8"},
+            {"text": "⏰ ۹ صبح", "callback_data": "sethour_9"}
+        ]
+    ]
+    requests.post(
+        f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage",
+        data={"chat_id": chat_id, "text": text, "reply_markup": json.dumps({"inline_keyboard": buttons})},
+        timeout=10
+    )
+
+
+def answer_callback(callback_id, text=""):
+    try:
+        requests.post(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/answerCallbackQuery", data={"callback_query_id": callback_id, "text": text}, timeout=5)
+    except Exception:
+        pass
+
+
+def rebuild_post_from_meta(meta, state):
+    ptype = meta.get("type")
+    overrides = meta.get("overrides", {})
+    footer = state.get("footer_text", DEFAULT_FOOTER)
+    if ptype == "morning":
+        return build_morning_image(overrides=overrides)
+    elif ptype == "weather":
+        return build_weather_image(overrides=overrides)
+    elif ptype == "match":
+        m = CACHE["matches_by_id"].get(meta.get("mid"))
+        if m:
+            return build_match_image(m, footer_text=footer, overrides=overrides)
+    elif ptype == "h2h":
+        m = CACHE["matches_by_id"].get(meta.get("mid"))
+        if m:
+            return build_h2h_matchday_image(m, footer_text=footer, overrides=overrides)
+    elif ptype == "multi":
+        selected = [CACHE["matches_by_id"][x] for x in meta.get("mids", []) if x in CACHE["matches_by_id"]]
+        if selected:
+            return build_multi_match_image(selected, title_top=meta.get("title_top", "نتایج بازی ها"), footer_text=footer, overrides=overrides)
+    return None
+
+
+def handle_reply_instant_edit(chat_id, reply_msg_id, user_text, state):
+    meta = SENT_POSTS_MEM.get(f"{chat_id}_{reply_msg_id}")
+    if not meta:
+        return False
+    overrides = meta.setdefault("overrides", {})
+    for raw_line in user_text.strip().split("\n"):
+        line = raw_line.strip()
+        if ":" in line:
+            k, val = line.split(":", 1)
+            k, val = k.strip(), val.strip()
+            if k in ("بالا", "قرمز", "برچسب", "سربرگ", "لیگ", "دسته"):
+                overrides["badge"] = val
+            elif k in ("وسط", "تیتر", "عنوان"):
+                overrides["title"] = val
+            elif k in ("پایین", "امضا", "فوتر"):
+                overrides["footer"] = val
+            elif k in ("نتیجه", "اسکور"):
+                overrides["score"] = val
+            elif k in ("متن", "گلزنان", "شعر", "توضیح"):
+                overrides["custom_line"] = val
+            else:
+                overrides["title"] = line
+        else:
+            overrides["title"] = line
+
+    if meta.get("type") == "viral":
+        process_viral_video_request(
+            chat_id,
+            url=meta.get("url", ""),
+            raw_text="",
+            state=state,
+            badge_override=overrides.get("badge", meta.get("badge")),
+            title_override=overrides.get("title", meta.get("title")),
+            bottom_override=overrides.get("footer", meta.get("footer")),
+            tg_file_id=meta.get("file_id")
+        )
+        return True
+
+    new_img = rebuild_post_from_meta(meta, state)
+    if new_img:
+        edit_telegram_photo_in_place(chat_id, reply_msg_id, new_img, caption=meta.get("caption", ""), inline_kb=meta.get("kb"), post_meta=meta)
+        return True
+    return False
+
+
+# =====================================================================
+# 8-B. Reels Framer Input Parser & Processor (3-Box Custom Layout)
+# =====================================================================
+def parse_viral_input_text(text):
+    cleaned = re.sub(r'^(ریلز\s*ساز|قاب\s*ساز|قاب|ویدیو|وایرال)\s*[\:\-]?\s*', '', (text or "").strip())
+    url_match = re.search(r'(https?://[^\s\|]+)', cleaned)
+    if not url_match:
+        return None, cleaned
+    url = url_match.group(1).strip()
+    remainder = (cleaned[:url_match.start()] + " " + cleaned[url_match.end():]).strip().lstrip("|:-").strip()
+    return url, remainder
+
+
+def parse_three_box_texts(raw_text, default_badge, default_bottom, fallback_title=""):
+    badge_txt = default_badge
+    title_txt = ""
+    bottom_txt = default_bottom
+
+    txt = (raw_text or "").strip()
+    if not txt:
+        return badge_txt, (fallback_title or "ویدیوی ویژه روز"), bottom_txt
+
+    labeled = False
+    for line in txt.split("\n"):
+        ln = line.strip()
+        if ":" in ln:
+            k, v = ln.split(":", 1)
+            k, v = k.strip(), v.strip()
+            if k in ("بالا", "قرمز", "برچسب"):
+                badge_txt = v
+                labeled = True
+            elif k in ("وسط", "تیتر", "عنوان"):
+                title_txt = v
+                labeled = True
+            elif k in ("پایین", "امضا", "فوتر"):
+                bottom_txt = v
+                labeled = True
+
+    if labeled:
+        return badge_txt, (title_txt or fallback_title or "ویدیوی ویژه روز"), bottom_txt
+
+    if "|" in txt:
+        parts = [p.strip() for p in txt.split("|")]
+    else:
+        parts = [p.strip() for p in txt.split("\n") if p.strip()]
+
+    if len(parts) >= 3:
+        badge_txt, title_txt, bottom_txt = parts[0], parts[1], parts[2]
+    elif len(parts) == 2:
+        title_txt, bottom_txt = parts[0], parts[1]
+    elif len(parts) == 1:
+        title_txt = parts[0]
+
+    return badge_txt, (title_txt or fallback_title or "ویدیوی ویژه روز"), bottom_txt
+
+
+def process_viral_video_request(chat_id, url, raw_text, state, badge_override=None, title_override=None, bottom_override=None, tg_file_id=None):
+    default_badge = state.get("reel_badge", DEFAULT_REEL_BADGE)
+    default_bottom = state.get("footer_text", DEFAULT_FOOTER)
+    send_menu_keyboard(chat_id, "⏳ در حال دریافت ویدیو و قرار دادن متن‌ها در قاب اختصاصی ریلز...")
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        raw_mp4 = os.path.join(tmpdir, "raw_input.mp4")
+        ok, extracted_title = False, ""
+        if tg_file_id:
+            ok = download_telegram_file(tg_file_id, raw_mp4)
+        elif url:
+            ok, extracted_title = download_viral_video_from_url(url, raw_mp4)
+
+        if not ok:
+            send_menu_keyboard(chat_id, "⚠ دانلود مستقیم از این لینک امکان‌پذیر نشد.\n💡 خود فایل ویدیو را مستقیماً برای ربات بفرستید و متن کادرها را در کپشن آن بنویسید.")
+            return
+
+        fallback_fa = to_persian_text(extracted_title) if extracted_title else "ویدیوی ویژه روز"
+        badge_txt, title_txt, bottom_txt = parse_three_box_texts(raw_text, default_badge, default_bottom, fallback_title=fallback_fa)
+
+        if badge_override is not None:
+            badge_txt = badge_override
+        if title_override is not None:
+            title_txt = title_override
+        if bottom_override is not None:
+            bottom_txt = bottom_override
+
+        mp4_bytes = render_framed_viral_video_mp4(raw_mp4, badge_txt, title_txt, bottom_txt)
+        if mp4_bytes:
+            caption = (
+                "🎬 ریلز آماده انتشار شد!\n"
+                f"🔴 کادر بالا: {badge_txt}\n"
+                f"⬛ کادر وسط: {title_txt}\n"
+                f"⬛ کادر پایین: {bottom_txt}\n\n"
+                "💡 برای ویرایش هر کادر روی همین ویدیو Reply بزنید (مثال: وسط: تیتر جدید)."
+            )
+            meta = {
+                "type": "viral", "url": url, "file_id": tg_file_id,
+                "badge": badge_txt, "title": title_txt, "footer": bottom_txt,
+                "overrides": {"badge": badge_txt, "title": title_txt, "footer": bottom_txt}
+            }
+            send_telegram_video(chat_id, mp4_bytes, caption=caption, post_meta=meta)
+        else:
+            send_menu_keyboard(chat_id, "⚠ خطا در پردازش ویدیو با FFmpeg.")
+
+
+# =====================================================================
+# 8-C. Instagram Public Scanner (30-Min Window + AJAX Story + Cookie)
+# =====================================================================
+def get_http_session():
+    global CURL_CFFI_READY
+    if not CURL_CFFI_READY:
+        try:
+            import curl_cffi
+            CURL_CFFI_READY = True
+        except ImportError:
+            try:
+                subprocess.run([sys.executable, "-m", "pip", "install", "-q", "curl_cffi"], timeout=45, check=False)
+                CURL_CFFI_READY = True
+            except Exception:
+                pass
+    try:
+        from curl_cffi import requests as cffi_req
+        return cffi_req, True
+    except Exception:
+        return requests, False
+
+
+def http_get_stealth(url, headers=None, params=None, timeout=12):
+    req_mod, is_cffi = get_http_session()
+    hdrs = dict(HEADERS)
+    if headers:
+        hdrs.update(headers)
+    if is_cffi:
+        return req_mod.get(url, headers=hdrs, params=params, impersonate="chrome120", timeout=timeout)
+    return req_mod.get(url, headers=hdrs, params=params, timeout=timeout)
+
+
+def http_post_stealth(url, headers=None, data=None, json_data=None, timeout=14):
+    req_mod, is_cffi = get_http_session()
+    hdrs = dict(HEADERS)
+    if headers:
+        hdrs.update(headers)
+    if is_cffi:
+        return req_mod.post(url, headers=hdrs, data=data, json=json_data, impersonate="chrome120", timeout=timeout)
+    return req_mod.post(url, headers=hdrs, data=data, json=json_data, timeout=timeout)
+
+
+def clean_ig_username(raw_text):
+    txt = str(raw_text).strip()
+    txt = re.sub(r'^https?://(www\.)?instagram\.com/stories/', '', txt, flags=re.IGNORECASE)
+    txt = re.sub(r'^https?://(www\.)?instagram\.com/', '', txt, flags=re.IGNORECASE)
+    txt = txt.split('/')[0].split('?')[0].replace('@', '').strip()
+    if re.match(r'^[a-zA-Z0-9._]{2,30}$', txt):
+        return txt.lower()
+    return ""
+
+
+def unescape_ig_raw_html(raw_html):
+    return str(raw_html).replace('\\"', '"').replace('\\/', '/').replace('\\u0026', '&').replace('&amp;', '&')
+
+
+def unpack_js_p_a_c_k_e_r(source_str):
+    m = re.search(r"}\(\s*'((?:\\'|[^'])*)'\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*'((?:\\'|[^'])*)'\.split\('\|'\)", source_str)
+    if not m:
+        return source_str
+    payload, radix, count, symtab = m.group(1), int(m.group(2)), int(m.group(3)), m.group(4).split('|')
+    alphabet = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    def to_base(num, b):
+        if num == 0:
+            return "0"
+        digits = []
+        while num:
+            digits.append(alphabet[int(num % b)])
+            num //= b
+        return "".join(reversed(digits))
+    result = payload
+    for i in range(min(count, len(symtab)) - 1, -1, -1):
+        if symtab[i]:
+            result = re.sub(rf'\b{re.escape(to_base(i, radix))}\b', lambda _: symtab[i], result)
+    return result
+
+
+def format_elapsed_fa(age_seconds):
+    if age_seconds is None or age_seconds < 0:
+        return "به تازگی"
+    mins = int(age_seconds // 60)
+    if mins <= 0:
+        return "لحظاتی پیش"
+    if mins < 60:
+        return f"{to_fa_digits(mins)} دقیقه پیش"
+    hrs, rem_m = mins // 60, mins % 60
+    if hrs < 24:
+        return f"{to_fa_digits(hrs)} ساعت و {to_fa_digits(rem_m)} دقیقه پیش" if rem_m > 0 else f"{to_fa_digits(hrs)} ساعت پیش"
+    return f"{to_fa_digits(hrs // 24)} روز پیش"
+
+
+def fetch_ig_single_shortcode_details(shortcode, is_reel_hint=False):
+    if not shortcode:
+        return None
+    is_video, video_url, display_url, caption, taken_at = is_reel_hint, "", "", "", 0
+    try:
+        r = http_get_stealth(f"https://www.instagram.com/p/{shortcode}/embed/captioned/", params={"_cb": int(time.time())}, timeout=12)
+        if r.status_code == 200:
+            raw_html = r.text
+            clean_html = unescape_ig_raw_html(raw_html)
+            if "EmbeddedMediaVideo" in clean_html or '"is_video":true' in clean_html or '"video_url":' in clean_html:
+                is_video = True
+            m_ts = re.search(r'"taken_at_timestamp"\s*:\s*(\d{9,11})', clean_html) or re.search(r'"taken_at"\s*:\s*(\d{9,11})', clean_html)
+            if m_ts:
+                taken_at = int(m_ts.group(1))
+            m_vid = re.search(r'"video_url"\s*:\s*"(https?://[^"]+)"', clean_html)
+            if m_vid:
+                video_url = m_vid.group(1)
+            m_img = re.search(r'class="EmbeddedMediaImage"[^>]+src="([^"]+)"', raw_html)
+            if m_img:
+                display_url = m_img.group(1).replace("&amp;", "&")
+            else:
+                m_disp = re.search(r'"display_url"\s*:\s*"(https?://[^"]+)"', clean_html)
+                if m_disp:
+                    display_url = m_disp.group(1)
+            m_cap = re.search(r'class="Caption"(.*?)</div>', raw_html, re.DOTALL)
+            if m_cap:
+                caption = re.sub(r'\s+', ' ', re.sub(r'<[^>]+>', ' ', m_cap.group(1))).strip()
+    except Exception:
+        pass
+    kind_path = "reel" if is_video else "p"
+    return {
+        "shortcode": shortcode, "kind": "reel" if is_video else "post", "is_video": is_video,
+        "media_url": video_url or display_url, "thumb_url": display_url,
+        "caption": caption[:600], "taken_at": taken_at,
+        "link": f"https://www.instagram.com/{kind_path}/{shortcode}/"
+    }
+
+
+def fetch_stories_multi_engine(clean_user, user_id, state, now_ts):
+    stories_all, stories_30m, seen_urls = [], [], set()
+    story_seen_mem = state.setdefault("ig_story_first_seen", {}).setdefault(clean_user, {})
+    ig_session = urllib.parse.unquote(state.get("ig_sessionid", "").strip())
+
+    def register_story_candidate(media_url, is_vid=False, taken_at_ts=0, force_recent=False):
+        if not media_url or "avatar" in media_url.lower() or "150x150" in media_url or "s150x150" in media_url:
+            return
+        s_key = hashlib.md5(media_url.split("?")[0][-60:].encode()).hexdigest()[:12]
+        if s_key in seen_urls:
+            return
+        seen_urls.add(s_key)
+        if taken_at_ts and taken_at_ts > 1000000000:
+            st_age = max(0, now_ts - int(taken_at_ts))
+            story_seen_mem[s_key] = int(taken_at_ts)
+        else:
+            if s_key not in story_seen_mem:
+                story_seen_mem[s_key] = now_ts
+            st_age = max(0, now_ts - story_seen_mem[s_key])
+        st_obj = {
+            "shortcode": "", "kind": "story", "is_video": is_vid or (".mp4" in media_url.lower()),
+            "media_url": media_url, "thumb_url": media_url, "caption": "استوری منتشرشده در پیج",
+            "taken_at": taken_at_ts or story_seen_mem[s_key], "age_sec": st_age,
+            "link": f"https://www.instagram.com/stories/{clean_user}/"
+        }
+        stories_all.append(st_obj)
+        if st_age <= IG_WINDOW_SECONDS or force_recent:
+            stories_30m.append(st_obj)
+
+    if user_id:
+        try:
+            st_headers = {
+                "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1",
+                "x-ig-app-id": "936619743392459", "X-ASBD-ID": "129477", "Accept": "*/*",
+                "Referer": f"https://www.instagram.com/{clean_user}/"
+            }
+            if ig_session:
+                st_headers["Cookie"] = f"sessionid={ig_session};"
+            for off_u in [f"https://www.instagram.com/api/v1/feed/reels_media/?reel_ids={user_id}", f"https://i.instagram.com/api/v1/feed/user/{user_id}/story/"]:
+                r_off = http_get_stealth(off_u, headers=st_headers, params={"_cb": now_ts}, timeout=12)
+                if r_off.status_code == 200 and "application/json" in r_off.headers.get("Content-Type", "").lower():
+                    j_data = r_off.json()
+                    items = j_data["reels_media"][0].get("items", []) if j_data.get("reels_media") else (j_data.get("reel", {}).get("items", []) if isinstance(j_data.get("reel"), dict) else [])
+                    for it in items:
+                        t_at = int(it.get("taken_at", 0) or 0)
+                        v_vers = it.get("video_versions", [])
+                        i_vers = it.get("image_versions2", {}).get("candidates", [])
+                        if v_vers:
+                            register_story_candidate(v_vers[0].get("url", ""), is_vid=True, taken_at_ts=t_at)
+                        elif i_vers:
+                            register_story_candidate(i_vers[0].get("url", ""), is_vid=False, taken_at_ts=t_at)
+                if stories_all:
+                    return stories_all, stories_30m
+        except Exception:
+            pass
+
+    for j_api in [
+        f"https://storiesig.info/api/ig/story?url=https://www.instagram.com/stories/{clean_user}/",
+        f"https://igram.world/api/ig/story?url=https://www.instagram.com/stories/{clean_user}/",
+        f"https://fastdl.app/api/ig/story?url=https://www.instagram.com/stories/{clean_user}/"
+    ]:
+        try:
+            rj = http_get_stealth(j_api, timeout=12)
+            if rj.status_code == 200 and "json" in rj.headers.get("Content-Type", "").lower():
+                j_obj = rj.json()
+                res_list = j_obj.get("result") or j_obj.get("data") or []
+                if isinstance(res_list, list):
+                    for it in res_list:
+                        t_at = int(it.get("taken_at", 0) or 0)
+                        v_vers = it.get("video_versions", [])
+                        i_vers = it.get("image_versions2", {}).get("candidates", [])
+                        direct_u = it.get("url") or it.get("video_url") or it.get("image_url") or ""
+                        if v_vers and isinstance(v_vers, list):
+                            register_story_candidate(v_vers[0].get("url", ""), is_vid=True, taken_at_ts=t_at)
+                        elif i_vers and isinstance(i_vers, list):
+                            register_story_candidate(i_vers[0].get("url", ""), is_vid=False, taken_at_ts=t_at)
+                        elif direct_u:
+                            register_story_candidate(direct_u, is_vid=(".mp4" in direct_u.lower()), taken_at_ts=t_at)
+                if stories_all:
+                    return stories_all, stories_30m
+        except Exception:
+            pass
+
+    for post_url, ref_url in [
+        ("https://v3.saveig.app/api/ajaxSearch", "https://saveig.app/en/instagram-story-downloader"),
+        ("https://savefree.app/api/ajaxSearch", "https://savefree.app/en/instagram-story-downloader")
+    ]:
+        try:
+            ra = http_post_stealth(
+                post_url,
+                headers={"Origin": "/".join(ref_url.split("/")[:3]), "Referer": ref_url, "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8", "X-Requested-With": "XMLHttpRequest"},
+                data={"q": f"https://www.instagram.com/stories/{clean_user}/", "t": "media", "lang": "en"},
+                timeout=14
+            )
+            if ra.status_code == 200:
+                raw_resp = ra.text
+                try:
+                    raw_resp = ra.json().get("data", "") or raw_resp
+                except Exception:
+                    pass
+                unpacked = unescape_ig_raw_html(unpack_js_p_a_c_k_e_r(raw_resp))
+                dl_links = re.findall(r'href="(https?://[^"]+)"[^>]*class="[^"]*abutton[^"]*"', unpacked) or re.findall(r'href="(https?://(?:dl\.|media\.|scontent)[^"]+)"', unpacked)
+                for dl_u in dl_links:
+                    register_story_candidate(dl_u, is_vid=("video" in dl_u.lower() or ".mp4" in dl_u.lower()))
+                if stories_all:
+                    return stories_all, stories_30m
+        except Exception:
+            pass
+
+    for sm_url in [f"https://imginn.com/stories/{clean_user}/", f"https://pixwox.com/profile/{clean_user}/stories/"]:
+        try:
+            sr = http_get_stealth(sm_url, timeout=12)
+            if sr.status_code == 200:
+                clean_st = unescape_ig_raw_html(sr.text)
+                has_recent = bool(re.search(r'\b([1-2]?\d|30)\s*(?:m|min|mins|minute|minutes|دقیقه)\b', clean_st, re.IGNORECASE))
+                for su in re.findall(r'https?://[^\s"\'<>]+\.(?:mp4|jpg)\?[^\s"\'<>]+', clean_st):
+                    register_story_candidate(su, is_vid=(".mp4" in su.lower()), force_recent=has_recent)
+                if stories_all:
+                    break
+        except Exception:
+            pass
+
+    return stories_all, stories_30m
+
+
+def fetch_instagram_public_bundle(username, state):
+    clean_user = clean_ig_username(username)
+    now_ts = int(time.time())
+    result = {
+        "username": clean_user, "user_id": "", "exists": False, "is_private": False,
+        "posts_count": None, "all_items": [], "recent_30m_items": [],
+        "stories_30m": [], "stories_all": [], "latest_age_sec": None
+    }
+    if not clean_user:
+        return result
+
+    seen_shortcodes = set()
+    ig_session = urllib.parse.unquote(state.get("ig_sessionid", "").strip())
+    ig_headers = {
+        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1",
+        "x-ig-app-id": "936619743392459", "X-ASBD-ID": "129477", "X-IG-WWW-Claim": "0",
+        "Accept": "*/*", "Referer": f"https://www.instagram.com/{clean_user}/", "Cache-Control": "no-cache"
+    }
+    if ig_session:
+        ig_headers["Cookie"] = f"sessionid={ig_session};"
+
+    try:
+        r = http_get_stealth(f"https://www.instagram.com/api/v1/users/web_profile_info/?username={clean_user}", headers=ig_headers, params={"_cb": now_ts}, timeout=12)
+        if r.status_code == 200 and "application/json" in r.headers.get("Content-Type", "").lower():
+            user_data = r.json().get("data", {}).get("user", {})
+            if user_data:
+                result["exists"] = True
+                result["user_id"] = str(user_data.get("id", "") or "")
+                result["is_private"] = user_data.get("is_private", False)
+                timeline_obj = user_data.get("edge_owner_to_timeline_media", {})
+                if "count" in timeline_obj:
+                    result["posts_count"] = int(timeline_obj.get("count", 0))
+                combined_edges = timeline_obj.get("edges", []) + user_data.get("edge_felix_video_timeline", {}).get("edges", [])
+                for edge in combined_edges:
+                    node = edge.get("node", {})
+                    sc = node.get("shortcode", "")
+                    if not sc or sc in seen_shortcodes:
+                        continue
+                    seen_shortcodes.add(sc)
+                    is_video = node.get("is_video", False)
+                    taken_at = int(node.get("taken_at_timestamp", 0) or 0)
+                    cap_edges = node.get("edge_media_to_caption", {}).get("edges", [])
+                    caption = cap_edges[0]["node"].get("text", "") if cap_edges else ""
+                    children_urls = [
+                        (ch["node"].get("video_url") or ch["node"].get("display_url"), bool(ch["node"].get("video_url")))
+                        for ch in node.get("edge_sidecar_to_children", {}).get("edges", [])
+                        if ch["node"].get("video_url") or ch["node"].get("display_url")
+                    ]
+                    result["all_items"].append({
+                        "shortcode": sc, "kind": "reel" if is_video else "post", "is_video": is_video,
+                        "media_url": node.get("video_url") if (is_video and node.get("video_url")) else node.get("display_url", ""),
+                        "thumb_url": node.get("display_url", ""), "children": children_urls,
+                        "caption": caption[:600], "taken_at": taken_at,
+                        "age_sec": (now_ts - taken_at) if taken_at > 0 else None,
+                        "link": f"https://www.instagram.com/{'reel' if is_video else 'p'}/{sc}/"
+                    })
+    except Exception:
+        pass
+
+    if not result["all_items"] or not result["user_id"]:
+        try:
+            r_emb = http_get_stealth(f"https://www.instagram.com/{clean_user}/embed/", headers={"Cache-Control": "no-cache"}, params={"_t": now_ts}, timeout=12)
+            if r_emb.status_code == 200:
+                clean_e = unescape_ig_raw_html(r_emb.text)
+                if "Page Not Found" not in clean_e:
+                    result["exists"] = True
+                if '"is_private":true' in clean_e or "This Account is Private" in clean_e:
+                    result["is_private"] = True
+                if not result["user_id"]:
+                    m_uid = re.search(r'"owner"\s*:\s*\{\s*"id"\s*:\s*"(\d+)"', clean_e) or re.search(r'"id"\s*:\s*"(\d{6,20})"', clean_e)
+                    if m_uid:
+                        result["user_id"] = m_uid.group(1)
+                if not result["all_items"]:
+                    ts_map = {sc: int(ts) for sc, ts in re.findall(r'"shortcode"\s*:\s*"([A-Za-z0-9_-]{8,15})".*?"taken_at_timestamp"\s*:\s*(\d{9,11})', clean_e)}
+                    sc_list = []
+                    for sc in re.findall(r'"shortcode"\s*:\s*"([A-Za-z0-9_-]{8,15})"', clean_e) + re.findall(r'/(?:p|reel)/([A-Za-z0-9_-]{8,15})/', clean_e):
+                        if sc not in sc_list:
+                            sc_list.append(sc)
+                    for sc_cand in sc_list[:8]:
+                        det = fetch_ig_single_shortcode_details(sc_cand)
+                        if det:
+                            if not det.get("taken_at") and sc_cand in ts_map:
+                                det["taken_at"] = ts_map[sc_cand]
+                            det["age_sec"] = (now_ts - det["taken_at"]) if det.get("taken_at", 0) > 0 else None
+                            result["all_items"].append(det)
+        except Exception:
+            pass
+
+    result["all_items"].sort(key=lambda x: x.get("taken_at", 0), reverse=True)
+    for item in result["all_items"]:
+        age = item.get("age_sec")
+        if age is not None:
+            if result["latest_age_sec"] is None or age < result["latest_age_sec"]:
+                result["latest_age_sec"] = max(0, age)
+            if 0 <= age <= IG_WINDOW_SECONDS:
+                result["recent_30m_items"].append(item)
+
+    st_all, st_30m = fetch_stories_multi_engine(clean_user, result["user_id"], state, now_ts)
+    result["stories_all"], result["stories_30m"] = st_all, st_30m
+    for st in st_all:
+        age = st.get("age_sec")
+        if age is not None and (result["latest_age_sec"] is None or age < result["latest_age_sec"]):
+            result["latest_age_sec"] = max(0, age)
+
+    save_state(state)
+    return result
+
+
+def send_ig_media_item_to_telegram(chat_id, label_title, username, item_dict):
+    if not item_dict:
+        return False
+    link, caption_raw = item_dict.get("link", ""), item_dict.get("caption", "")
+    media_url, thumb_url = item_dict.get("media_url", ""), item_dict.get("thumb_url", "")
+    caption_text = f"📌 {label_title} | @{username}\n⏱ زمان انتشار: {format_elapsed_fa(item_dict.get('age_sec'))}\n\n{caption_raw[:420]}\n\n🔗 لینک مستقیم:\n{link}".strip()
+    kb = [[{"text": "🎬 تبدیل به ریلز در قاب اختصاصی", "callback_data": f"igframe_{item_dict.get('shortcode', '')}"}]] if (link and item_dict.get("shortcode")) else []
+
+    children = item_dict.get("children", [])
+    if len(children) > 1:
+        sent_slides = False
+        for idx, (ch_url, ch_is_vid) in enumerate(children[:10]):
+            try:
+                r_ch = http_get_stealth(ch_url, timeout=20)
+                if r_ch.status_code == 200 and len(r_ch.content) > 5000:
+                    slide_cap = caption_text if idx == 0 else f"🖼 اسلاید {to_fa_digits(idx + 1)} از پست @{username}"
+                    if ch_is_vid or ".mp4" in ch_url.lower():
+                        requests.post(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendVideo", data={"chat_id": chat_id, "caption": slide_cap, "supports_streaming": True}, files={"video": ("slide.mp4", io.BytesIO(r_ch.content), "video/mp4")}, timeout=45)
+                    else:
+                        requests.post(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendPhoto", data={"chat_id": chat_id, "caption": slide_cap}, files={"photo": ("slide.jpg", io.BytesIO(r_ch.content), "image/jpeg")}, timeout=30)
+                    sent_slides = True
+            except Exception:
+                pass
+        if sent_slides:
+            return True
+
+    if link and item_dict.get("is_video") and item_dict.get("shortcode"):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            dl_path = os.path.join(tmpdir, "ig_item.mp4")
+            ok, _ = download_viral_video_from_url(link, dl_path)
+            if ok and os.path.exists(dl_path) and os.path.getsize(dl_path) > 10000:
+                with open(dl_path, "rb") as f:
+                    v_bytes = f.read()
+                data = {"chat_id": chat_id, "caption": caption_text, "supports_streaming": True}
+                if kb:
+                    data["reply_markup"] = json.dumps({"inline_keyboard": kb})
+                requests.post(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendVideo", data=data, files={"video": ("instagram.mp4", io.BytesIO(v_bytes), "video/mp4")}, timeout=60)
+                return True
+
+    target_media = media_url or thumb_url
+    if target_media:
+        try:
+            r_m = http_get_stealth(target_media, timeout=25)
+            if r_m.status_code == 200 and len(r_m.content) > 5000:
+                ctype = r_m.headers.get("Content-Type", "").lower()
+                is_v = ("video" in ctype or ".mp4" in target_media.lower() or item_dict.get("is_video"))
+                data = {"chat_id": chat_id, "caption": caption_text}
+                if kb:
+                    data["reply_markup"] = json.dumps({"inline_keyboard": kb})
+                if is_v:
+                    data["supports_streaming"] = True
+                    requests.post(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendVideo", data=data, files={"video": ("ig_video.mp4", io.BytesIO(r_m.content), "video/mp4")}, timeout=45)
+                else:
+                    requests.post(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendPhoto", data=data, files={"photo": ("ig_photo.jpg", io.BytesIO(r_m.content), "image/jpeg")}, timeout=30)
+                return True
+        except Exception:
+            pass
+
+    if link:
+        dd_link = link.replace("www.instagram.com", "d.ddinstagram.com")
+        data = {"chat_id": chat_id, "text": f"📌 {label_title} | @{username}\n\n{caption_raw[:420]}\n\n🔗 {dd_link}"}
+        if kb:
+            data["reply_markup"] = json.dumps({"inline_keyboard": kb})
+        requests.post(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage", data=data, timeout=15)
+        return True
+    return False
+
+
+def process_instagram_page_check(chat_id, username_raw, state):
+    raw_u = str(username_raw).strip()
+    url_msg = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+
+    if raw_u == "setcookie":
+        state["awaiting_input"] = "ig_username"
+        save_state(state)
+        requests.post(url_msg, data={"chat_id": chat_id, "text": "🔑 لطفا مقدار کوکی sessionid یک اکانت فرعی اینستاگرام را برای دریافت آنی استوری‌ها همین‌جا بفرستید:"}, timeout=10)
+        return
+
+    if ("%" in raw_u or ":" in raw_u) and len(raw_u) > 25 and not raw_u.startswith("http"):
+        state["ig_sessionid"] = raw_u.replace("sessionid=", "").strip().strip(";")
+        save_state(state)
+        target_p = state.get("ig_target_page", "shirazlastnews")
+        send_menu_keyboard(chat_id, f"✅ کوکی استوری ذخیره شد! در حال اسکن @{target_p}...")
+        raw_u = target_p
+
+    force_all = raw_u.startswith("all__")
+    if force_all:
+        raw_u = raw_u.replace("all__", "", 1)
+
+    clean_user = clean_ig_username(raw_u)
+    if not clean_user:
+        send_menu_keyboard(chat_id, "⚠ آیدی پیج معتبر نیست. لطفا فقط آیدی انگلیسی پیج را بفرستید.")
+        return
+
+    state["ig_target_page"] = clean_user
+    save_state(state)
+
+    has_cookie = bool(state.get("ig_sessionid"))
+    cookie_lbl = "🔑 بروزرسانی کوکی استوری (فعال ✅)" if has_cookie else "🔑 ثبت کوکی استوری"
+    kb_base = [
+        [{"text": f"🔄 رصد مجدد ۳۰ دقیقه اخیر @{clean_user}", "callback_data": f"igcheck_{clean_user}"}],
+        [{"text": "✏ تغییر آیدی پیج اینستاگرام", "callback_data": "ig_change_user"}],
+        [{"text": cookie_lbl, "callback_data": "igcheck_setcookie"}]
+    ]
+
+    requests.post(
+        url_msg,
+        data={"chat_id": chat_id, "text": f"🔍 در حال اسکن پیج @{clean_user}...", "reply_markup": json.dumps({"inline_keyboard": kb_base})},
+        timeout=10
+    )
+
+    bundle = fetch_instagram_public_bundle(clean_user, state)
+    items_to_send = bundle["all_items"][:5] if force_all else bundle["recent_30m_items"]
+    stories_to_send = bundle["stories_all"][:8] if force_all else bundle["stories_30m"]
+
+    sent_count = 0
+    for item in reversed(items_to_send):
+        if send_ig_media_item_to_telegram(chat_id, "🎬 ریلز منتشرشده" if item.get("is_video") else "📸 پست منتشرشده", clean_user, item):
+            sent_count += 1
+    for idx, st_item in enumerate(stories_to_send):
+        if send_ig_media_item_to_telegram(chat_id, f"📱 استوری فعال ({to_fa_digits(idx + 1)})", clean_user, st_item):
+            sent_count += 1
+
+    if sent_count > 0:
+        requests.post(url_msg, data={"chat_id": chat_id, "text": f"✅ مجموعاً {to_fa_digits(sent_count)} محتوا از @{clean_user} ارسال شد.", "reply_markup": json.dumps({"inline_keyboard": kb_base})}, timeout=10)
+        return
+
+    if bundle.get("is_private"):
+        requests.post(url_msg, data={"chat_id": chat_id, "text": f"🔒 پیج @{clean_user} خصوصی است.", "reply_markup": json.dumps({"inline_keyboard": kb_base})}, timeout=10)
+        return
+
+    if not force_all and (bundle["all_items"] or bundle["stories_all"]):
+        last_age_txt = format_elapsed_fa(bundle.get("latest_age_sec"))
+        kb_fallback = [
+            [{"text": f"📥 ارسال آخرین محتوای @{clean_user} ({last_age_txt})", "callback_data": f"igcheck_all__{clean_user}"}],
+            [{"text": f"🔄 بررسی مجدد ۳۰ دقیقه اخیر @{clean_user}", "callback_data": f"igcheck_{clean_user}"}],
+            [{"text": "✏ تغییر آیدی پیج اینستاگرام", "callback_data": "ig_change_user"}],
+            [{"text": cookie_lbl, "callback_data": "igcheck_setcookie"}]
+        ]
+        requests.post(
+            url_msg,
+            data={"chat_id": chat_id, "text": f"⏱ در ۳۰ دقیقه گذشته محتوای جدیدی در @{clean_user} یافت نشد.\n🕒 آخرین فعالیت ثبت‌شده: {last_age_txt}", "reply_markup": json.dumps({"inline_keyboard": kb_fallback})},
+            timeout=10
+        )
+        return
+
+    requests.post(url_msg, data={"chat_id": chat_id, "text": f"📭 در بازه ۳۰ دقیقه گذشته محتوای جدیدی در @{clean_user} یافت نشد.", "reply_markup": json.dumps({"inline_keyboard": kb_base})}, timeout=10)
+
+
+# =====================================================================
+# 9. GitHub Actions Scheduled Worker & Main Loop (07:00 - 21:00 Tehran)
+# =====================================================================
+def background_worker(state):
+    while is_within_active_hours():
+        try:
+            refresh_daily_data_cache()
+            check_all_football_free(state)
+
+            now_tehran = jdatetime.datetime.now(TEHRAN_TZ)
+            today_gregorian = now_tehran.togregorian().strftime("%Y-%m-%d")
+            target_chat = get_target_chat_id(state)
+            morning_hour = int(state.get("morning_hour", 7))
+
+            if now_tehran.hour == morning_hour and state.get("last_morning_date") != today_gregorian and target_chat:
+                refresh_daily_data_cache()
+                kb_m = [[{"text": "🎬 دریافت ویدیو موشن گرافیک (MP4)", "callback_data": "mkvid_morning_0"}]]
+                cap_m = "🌞 صبح بخیر | تقویم، اوقات شرعی، نبض بازار و تفال حافظ"
+                send_telegram_photo(target_chat, build_morning_image(), cap_m, inline_kb=kb_m, post_meta={"type": "morning", "overrides": {}, "caption": cap_m, "kb": kb_m})
+
+                kb_w = [[{"text": "🎬 دریافت ویدیو موشن گرافیک (MP4)", "callback_data": "mkvid_weather_0"}]]
+                cap_w = "⛅ وضعیت آب و هوا و پیش بینی ۴ زمانه امروز"
+                send_telegram_photo(target_chat, build_weather_image(), cap_w, inline_kb=kb_w, post_meta={"type": "weather", "overrides": {}, "caption": cap_w, "kb": kb_w})
+                state["last_morning_date"] = today_gregorian
+
+            save_state(state)
+        except Exception as e:
+            print("Background worker error:", e)
+        time.sleep(60)
+
+
+def handle_user_request(chat_id, text, state, reply_to_msg_id=None, tg_file_id=None):
+    t = (text or "").strip()
+
+    if tg_file_id:
+        state["awaiting_input"] = ""
+        save_state(state)
+        process_viral_video_request(chat_id, url="", raw_text=t, state=state, tg_file_id=tg_file_id)
+        return
+
+    if reply_to_msg_id and handle_reply_instant_edit(chat_id, reply_to_msg_id, t, state):
+        return
+
+    awaiting = state.get("awaiting_input", "")
+    if awaiting == "footer":
+        state["footer_text"] = t
+        state["awaiting_input"] = ""
+        save_state(state)
+        send_menu_keyboard(chat_id, f"✅ متن امضای پایین به «{t}» تغییر یافت.")
+        return
+
+    if awaiting == "reel_badge":
+        state["reel_badge"] = t
+        state["awaiting_input"] = ""
+        save_state(state)
+        send_menu_keyboard(chat_id, f"✅ برچسب کادر قرمز ریلزساز به «{t}» تغییر یافت.")
+        return
+
+    if awaiting == "viral_link" and not t.startswith("/"):
+        url, remainder = parse_viral_input_text(t)
+        if url:
+            state["awaiting_input"] = ""
+            save_state(state)
+            process_viral_video_request(chat_id, url, remainder, state)
+            return
+
+    if awaiting == "ig_username" and not t.startswith("/"):
+        state["awaiting_input"] = ""
+        save_state(state)
+        process_instagram_page_check(chat_id, t, state)
+        return
+
+    if t in ("📸 رصد پیج اینستاگرام", "/insta"):
+        target_page = state.get("ig_target_page", "")
+        if target_page:
+            process_instagram_page_check(chat_id, target_page, state)
+        else:
+            state["awaiting_input"] = "ig_username"
+            save_state(state)
+            send_menu_keyboard(chat_id, "📸 لطفا آیدی پیج عمومی اینستاگرام را بفرستید (مثلا shirazlastnews):")
+        return
+
+    if t in ("🎬 ریلزساز و قاب ویدیو", "🎬 قاب‌ساز ویدیو وایرال", "/viral"):
+        state["awaiting_input"] = "viral_link"
+        save_state(state)
+        guide_txt = (
+            "🎬 ریلزساز با قاب اختصاصی آماده است!\n\n"
+            "فایل ویدیو (یا لینک اینستاگرام/یوتیوب/توییتر) را همراه با متن کادرها بفرستید:\n\n"
+            "1️⃣ یک متن (فقط کادر مشکی وسط):\n"
+            "بارش شدید باران در شیراز\n\n"
+            "2️⃣ دو متن (کادر وسط | کادر پایین):\n"
+            "بارش شدید باران در شیراز | آخرین خبرهای شیراز\n\n"
+            "3️⃣ سه متن (کادر قرمز بالا | کادر وسط | کادر پایین):\n"
+            "خبر فوری | بارش شدید باران در شیراز | جزئیات در کپشن"
+        )
+        send_menu_keyboard(chat_id, guide_txt)
+        return
+
+    if re.search(r'https?://', t):
+        url, remainder = parse_viral_input_text(t)
+        if url:
+            state["awaiting_input"] = ""
+            save_state(state)
+            process_viral_video_request(chat_id, url, remainder, state)
+            return
+
+    if "صبح بخیر" in t or t == "/morning":
+        kb = [[{"text": "🎬 دریافت ویدیو موشن گرافیک (MP4)", "callback_data": "mkvid_morning_0"}]]
+        cap = "🌞 صبح بخیر | تقویم، اوقات شرعی، نبض بازار و تفال حافظ"
+        send_telegram_photo(chat_id, build_morning_image(), cap, inline_kb=kb, post_meta={"type": "morning", "overrides": {}, "caption": cap, "kb": kb})
+
+    elif "وضعیت هوا" in t or "آب و هوا" in t or t == "/weather":
+        kb = [[{"text": "🎬 دریافت ویدیو موشن گرافیک (MP4)", "callback_data": "mkvid_weather_0"}]]
+        cap = "⛅ وضعیت لحظه ای آب و هوا و پیش بینی ۴ زمانه"
+        send_telegram_photo(chat_id, build_weather_image(), cap, inline_kb=kb, post_meta={"type": "weather", "overrides": {}, "caption": cap, "kb": kb})
+
+    elif "نتایج زنده" in t or "فوتبال" in t or t == "/football":
+        send_league_selection_question(chat_id)
+
+    elif "تنظیمات" in t or t == "/settings":
+        send_settings_menu(chat_id, state)
+
+    else:
+        send_menu_keyboard(chat_id, "👇 لطفا یکی از کلیدهای منوی پایین صفحه را انتخاب کنید:")
+
+
+def handle_callback_query(chat_id, message_id, cb_id, data, state):
+    footer = state.get("footer_text", DEFAULT_FOOTER)
+
+    if data == "show_live_now":
+        answer_callback(cb_id, "🔴 دریافت بازی های زنده...")
+        send_live_now_matches(chat_id, message_id=message_id)
+
+    elif data.startswith("showlg_"):
+        answer_callback(cb_id, "⚽ دریافت لیست بازی ها...")
+        send_specific_league_matches(chat_id, data.replace("showlg_", "", 1), message_id=message_id)
+
+    elif data == "back_leagues":
+        answer_callback(cb_id)
+        send_league_selection_question(chat_id, message_id=message_id)
+
+    elif data.startswith("mkimg_"):
+        answer_callback(cb_id, "🎨 در حال ساخت پوستر...")
+        mid = data.replace("mkimg_", "", 1)
+        m = CACHE["matches_by_id"].get(mid)
+        if m:
+            caption = f"{m['status_emoji']} {m['status_label']} ({m['league_fa']})\n⚽ {m['h_name']} {to_fa_digits(m['h_g'])} - {to_fa_digits(m['a_g'])} {m['a_name']}"
+            kb = [
+                [{"text": "🔄 بروزرسانی زنده همین پوستر", "callback_data": f"refresh_{mid}"}],
+                [{"text": "🎬 دریافت ویدیو موشن گرافیک (MP4)", "callback_data": f"mkvid_match_{mid}"}]
+            ]
+            meta = {"type": "match", "mid": mid, "overrides": {}, "caption": caption, "kb": kb}
+            sent_id = send_telegram_photo(chat_id, build_match_image(m, footer_text=footer), caption=caption, inline_kb=kb, post_meta=meta)
+            state.setdefault("matches", {}).setdefault(mid, {"h": m["h_g"], "a": m["a_g"], "ft": m["is_finished"]})["msg_id"] = sent_id
+
+    elif data.startswith("refresh_"):
+        mid = data.replace("refresh_", "", 1)
+        answer_callback(cb_id, "🔄 بروزرسانی درجا...")
+        check_all_football_free(state)
+        m = CACHE["matches_by_id"].get(mid)
+        if m:
+            meta = SENT_POSTS_MEM.get(f"{chat_id}_{message_id}", {"type": "match", "mid": mid, "overrides": {}})
+            caption = f"{m['status_emoji']} {m['status_label']} ({m['league_fa']})\n⚽ {m['h_name']} {to_fa_digits(m['h_g'])} - {to_fa_digits(m['a_g'])} {m['a_name']}"
+            kb = [
+                [{"text": "🔄 بروزرسانی زنده همین پوستر", "callback_data": f"refresh_{mid}"}],
+                [{"text": "🎬 دریافت ویدیو موشن گرافیک (MP4)", "callback_data": f"mkvid_match_{mid}"}]
+            ]
+            meta["caption"], meta["kb"] = caption, kb
+            edit_telegram_photo_in_place(chat_id, message_id, build_match_image(m, footer_text=footer, overrides=meta.get("overrides")), caption=caption, inline_kb=kb, post_meta=meta)
+
+    elif data.startswith("mkh2h_"):
+        answer_callback(cb_id, "⚔ ساخت پوستر پیش بازی...")
+        mid = data.replace("mkh2h_", "", 1)
+        m = CACHE["matches_by_id"].get(mid)
+        if m:
+            caption = f"⚔ پیش بازی و تقابل رو در رو ({m['league_fa']})\n⚽ {m['h_name']} مقابل {m['a_name']}"
+            kb = [[{"text": "🎬 دریافت ویدیو موشن گرافیک (MP4)", "callback_data": f"mkvid_h2h_{mid}"}]]
+            send_telegram_photo(chat_id, build_h2h_matchday_image(m, footer_text=footer), caption=caption, inline_kb=kb, post_meta={"type": "h2h", "mid": mid, "overrides": {}, "caption": caption, "kb": kb})
+
+    elif data == "mk_multi_today" or data.startswith("mkmulti_"):
+        answer_callback(cb_id, "📊 ساخت پوستر تجمیعی...")
+        if data == "mk_multi_today":
+            all_ids = CACHE["live_match_ids"] + [mid for lg in CACHE["leagues"].values() for mid in lg["match_ids"]]
+            seen = []
+            for x in all_ids:
+                if x not in seen:
+                    seen.append(x)
+            mids = [x for x in seen[:5] if x in CACHE["matches_by_id"]]
+            title_top = "نتایج بازی های امروز"
+        else:
+            lg_info = CACHE["leagues"].get(data.replace("mkmulti_", "", 1), {})
+            mids = [x for x in lg_info.get("match_ids", [])[:5] if x in CACHE["matches_by_id"]]
+            title_top = lg_info.get("title", "نتایج بازی ها")
+        selected = [CACHE["matches_by_id"][x] for x in mids]
+        if selected:
+            caption = f"📊 جمع بندی نتایج ({title_top})"
+            kb = [[{"text": "🎬 دریافت ویدیو موشن گرافیک (MP4)", "callback_data": "mkvid_multi_0"}]]
+            send_telegram_photo(chat_id, build_multi_match_image(selected, title_top=title_top, footer_text=footer), caption=caption, inline_kb=kb, post_meta={"type": "multi", "mids": mids, "title_top": title_top, "overrides": {}, "caption": caption, "kb": kb})
+
+    elif data.startswith("mkvid_"):
+        answer_callback(cb_id, "🎬 در حال رندر ویدیوی ۱۴ ثانیه‌ای موشن گرافیک...")
+        meta = SENT_POSTS_MEM.get(f"{chat_id}_{message_id}")
+        ptype, m_obj, m_list, title_top, overrides = "morning", None, None, "نتایج بازی های امروز", {}
+        if meta:
+            ptype = meta.get("type", "morning")
+            overrides = meta.get("overrides", {})
+            if ptype in ("match", "h2h"):
+                m_obj = CACHE["matches_by_id"].get(meta.get("mid"))
+            elif ptype == "multi":
+                m_list = [CACHE["matches_by_id"][x] for x in meta.get("mids", []) if x in CACHE["matches_by_id"]]
+                title_top = meta.get("title_top", "نتایج بازی های امروز")
+        else:
+            parts = data.split("_", 2)
+            ptype, arg = parts[1], (parts[2] if len(parts) > 2 else "")
+            if ptype in ("match", "h2h") and arg in CACHE["matches_by_id"]:
+                m_obj = CACHE["matches_by_id"][arg]
+
+        mp4_bytes = generate_scenario_video_mp4(ptype, state, m_obj=m_obj, matches_list=m_list, title_top=title_top, overrides=overrides)
+        if mp4_bytes:
+            send_telegram_video(chat_id, mp4_bytes, caption="🎬 نسخه استوری موشن گرافیک (۱۴ ثانیه‌ای آماده استوری)")
+
+    elif data == "ig_change_user":
+        answer_callback(cb_id)
+        state["awaiting_input"] = "ig_username"
+        save_state(state)
+        requests.post(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage", data={"chat_id": chat_id, "text": "✏ آیدی پیج عمومی جدید اینستاگرام را بفرستید:"}, timeout=10)
+
+    elif data.startswith("igcheck_"):
+        uname = data.replace("igcheck_", "", 1)
+        answer_callback(cb_id, "🔍 در حال بررسی...")
+        process_instagram_page_check(chat_id, uname, state)
+
+    elif data.startswith("igframe_"):
+        sc = data.replace("igframe_", "", 1)
+        if sc:
+            answer_callback(cb_id, "🎬 ارسال به ریلزساز اختصاصی...")
+            process_viral_video_request(chat_id, f"https://www.instagram.com/reel/{sc}/", "", state)
+
+    elif data == "set_footer":
+        answer_callback(cb_id)
+        state["awaiting_input"] = "footer"
+        save_state(state)
+        requests.post(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage", data={"chat_id": chat_id, "text": "✏ متن جدید امضای پایین پوسترها و ریلز را بفرستید:"}, timeout=10)
+
+    elif data == "set_reel_badge":
+        answer_callback(cb_id)
+        state["awaiting_input"] = "reel_badge"
+        save_state(state)
+        requests.post(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage", data={"chat_id": chat_id, "text": "🔴 متن کوتاه جدید کادر قرمز ریلزساز (مثلا فوری یا اختصاصی) را بفرستید:"}, timeout=10)
+
+    elif data.startswith("sethour_"):
+        hr = int(data.replace("sethour_", "", 1))
+        state["morning_hour"] = hr
+        save_state(state)
+        answer_callback(cb_id, f"✅ ساعت ارسال صبحگاهی: {to_fa_digits(hr)} صبح")
+        send_settings_menu(chat_id, state)
+
+
+if __name__ == "__main__":
+    if not is_within_active_hours():
+        print("Outside active Tehran hours (07:00 - 21:00). Exiting cleanly.")
+        sys.exit(0)
+
+    ensure_fonts()
+    preload_templates()
+    setup_bot_commands()
+    state = load_state()
+
+    refresh_daily_data_cache()
+    check_all_football_free(state)
+
+    now_tehran = jdatetime.datetime.now(TEHRAN_TZ)
+    today_gregorian = now_tehran.togregorian().strftime("%Y-%m-%d")
+    target = get_target_chat_id(state)
+
+    if target and state.get("last_wake_notice_date") != today_gregorian:
+        send_menu_keyboard(target, "☀️ ربات روشن شد! (ساعات فعالیت: ۷ صبح تا ۲۱ شب به وقت تهران)")
+        state["last_wake_notice_date"] = today_gregorian
+        save_state(state)
+
+    threading.Thread(target=background_worker, args=(state,), daemon=True).start()
+
+    start_ts = time.time()
+    offset = 0
+    while (time.time() - start_ts < MAX_CYCLE_SECONDS) and is_within_active_hours():
+        try:
+            url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/getUpdates"
+            res = requests.get(url, params={"offset": offset, "timeout": 25}, timeout=30).json()
+            for upd in res.get("result", []):
+                offset = upd["update_id"] + 1
+                if "message" in upd:
+                    msg = upd["message"]
+                    cid = msg["chat"]["id"]
+                    txt = msg.get("text") or msg.get("caption") or ""
+                    reply_id = msg.get("reply_to_message", {}).get("message_id")
+                    tg_video_id = msg["video"].get("file_id") if "video" in msg else (msg["animation"].get("file_id") if "animation" in msg else None)
+                    if txt or tg_video_id:
+                        if not state.get("owner_chat_id"):
+                            state["owner_chat_id"] = cid
+                            save_state(state)
+                        threading.Thread(target=handle_user_request, args=(cid, txt, state, reply_id, tg_video_id), daemon=True).start()
+                elif "callback_query" in upd:
+                    cb = upd["callback_query"]
+                    threading.Thread(
+                        target=handle_callback_query,
+                        args=(cb["message"]["chat"]["id"], cb["message"]["message_id"], cb["id"], cb.get("data", ""), state),
+                        daemon=True
+                    ).start()
+        except Exception as e:
+            print("Polling error:", e)
+            time.sleep(3)
+
+    now_end = jdatetime.datetime.now(TEHRAN_TZ)
+    today_end = now_end.togregorian().strftime("%Y-%m-%d")
+    if not is_within_active_hours():
+        if target and state.get("last_sleep_notice_date") != today_end:
+            state["last_sleep_notice_date"] = today_end
+            try:
+                requests.post(
+                    f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage",
+                    data={"chat_id": target, "text": "🌙 ساعت ۲۱ به وقت تهران رسید؛ ربات تا ساعت ۷ صبح فردا خاموش می‌شود."},
+                    timeout=10
+                )
+            except Exception:
+                pass
+
+    save_state(state)
