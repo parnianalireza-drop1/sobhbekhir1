@@ -897,4 +897,725 @@ def render_framed_viral_video_mp4(input_video_path, badge_text, title_text, bott
                 gc.collect()
     return None
 
+# =====================================================================
+# 5. Motion Graphics Engine (14s, Low-Bandwidth, No-Ghosting Fixed)
+# =====================================================================
+def parse_int_from_price(price_str, default_val=1000000):
+    digits = re.sub(r'[^\d]', '', str(price_str))
+    return int(digits) if digits else default_val
+
+
+def apply_camera_zoom_and_shake(img, zoom=1.0, shake_x=0, shake_y=0):
+    w, h = img.size
+    if zoom > 1.002 or shake_x != 0 or shake_y != 0:
+        cw = int(w / zoom)
+        ch = int(h / zoom)
+        x1 = max(0, min(w - cw, (w - cw) // 2 + shake_x))
+        y1 = max(0, min(h - ch, (h - ch) // 2 + shake_y))
+        cropped = img.crop((x1, y1, x1 + cw, y1 + ch))
+        return cropped.resize((w, h), Image.Resampling.BILINEAR)
+    return img.copy()
+
+
+def draw_dual_neon_progress_bar(draw, x1, y, x2, h_val, a_val, progress):
+    total = max(1, h_val + a_val)
+    h_ratio = (h_val / float(total)) * clamp01(progress)
+    a_ratio = (a_val / float(total)) * clamp01(progress)
+    bar_w = x2 - x1
+    mid_x = (x1 + x2) // 2
+    draw.rounded_rectangle([x1, y, x2, y + 12], radius=6, fill=(38, 48, 66, 220))
+    h_start = max(x1, x2 - int(bar_w * h_ratio))
+    if x2 - h_start > 4:
+        draw.rounded_rectangle([h_start, y, x2, y + 12], radius=6, fill=(248, 204, 98, 255))
+    a_end = min(x2, x1 + int(bar_w * a_ratio))
+    if a_end - x1 > 4:
+        draw.rounded_rectangle([x1, y, a_end, y + 12], radius=6, fill=(65, 205, 255, 255))
+    draw.line([(mid_x, y - 2), (mid_x, y + 14)], fill=(255, 255, 255, 210), width=2)
+
+
+def generate_scenario_video_mp4(ptype, state, m_obj=None, matches_list=None, title_top="نتایج بازی های امروز", overrides=None):
+    with VIDEO_RENDER_LOCK:
+        overrides = overrides or {}
+        fps = 15
+        total_frames = 210
+        anim_frames = 75
+        footer_text = overrides.get("footer", state.get("footer_text", DEFAULT_FOOTER))
+
+        if ptype == "multi" and not matches_list:
+            all_ids = CACHE["live_match_ids"] + [mid for lg in CACHE["leagues"].values() for mid in lg["match_ids"]]
+            seen = []
+            for x in all_ids:
+                if x not in seen and x in CACHE["matches_by_id"]:
+                    seen.append(x)
+            matches_list = [CACHE["matches_by_id"][x] for x in seen[:5]]
+
+        now_tehran = jdatetime.datetime.now(TEHRAN_TZ)
+        aura_r, aura_g, aura_b = WEEKDAY_AURAS[now_tehran.weekday() % len(WEEKDAY_AURAS)]
+
+        rng = random.Random(now_tehran.day + int(time.time()) % 100)
+        particles = [
+            {
+                "x": rng.randint(50, 1030),
+                "y": rng.randint(80, 1820),
+                "speed": rng.randint(10, 22),
+                "size": rng.randint(3, 7),
+                "phase": rng.random() * math.pi * 2
+            }
+            for _ in range(40)
+        ]
+
+        full_date, short_date, day_num = get_persian_date()
+        fajr, sunrise, dhuhr, maghrib = CACHE["prayers"]
+        w = CACHE["weather"]
+        usd_str, gold_str, coin_str = CACHE["market"]
+        usd_val = parse_int_from_price(usd_str, 2669000)
+        gold_val = parse_int_from_price(gold_str, 250388000)
+        coin_val = parse_int_from_price(coin_str, 2539650000)
+
+        hem1, hem2 = HAFEZ_POEMS[day_num % len(HAFEZ_POEMS)]
+        hem1_words = hem1.split(" ")
+        hem2_words = hem2.split(" ")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            out_mp4 = os.path.join(tmpdir, "motion_story.mp4")
+            cmd = [
+                "ffmpeg", "-y",
+                "-f", "rawvideo",
+                "-vcodec", "rawvideo",
+                "-s", "1080x1920",
+                "-pix_fmt", "rgb24",
+                "-r", str(fps),
+                "-i", "pipe:0",
+                "-an",
+                "-c:v", "libx264",
+                "-profile:v", "high",
+                "-level", "4.1",
+                "-pix_fmt", "yuv420p",
+                "-preset", "veryfast",
+                "-tune", "animation",
+                "-crf", "26",
+                "-maxrate", "1600k",
+                "-bufsize", "3200k",
+                "-movflags", "+faststart",
+                out_mp4
+            ]
+
+            try:
+                proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+            except Exception as e:
+                print("FFmpeg start error:", e)
+                return None
+
+            try:
+                for f_idx in range(total_frames):
+                    t = min(1.0, f_idx / float(anim_frames - 1))
+                    t_full = f_idx / float(total_frames - 1)
+
+                    if ptype == "morning":
+                        bg_zoom = 1.0 + 0.035 * math.sin(t_full * math.pi)
+                        frame = apply_camera_zoom_and_shake(TEMPLATES_RAM["t1"], zoom=bg_zoom)
+                        draw = ImageDraw.Draw(frame)
+
+                        p_head = ease_out_back((t - 0.02) / 0.22)
+                        paste_sprite_animated(frame, render_text_sprite(overrides.get("title", f"صبح بخیر {CITY_NAME_FA}"), 86, "title_gold", True, 820), 540, int(-80 + 345 * p_head), alpha_mult=clamp01(t / 0.15))
+                        paste_sprite_animated(frame, render_text_sprite("تقویم و گزارش روزانه", 42, "warm_bronze", False, 820), 540, int(-40 + 415 * p_head), alpha_mult=clamp01(t / 0.18))
+                        paste_sprite_animated(frame, render_text_sprite(full_date, 52, "dark_emerald", False, 820), 540, 455, scale=0.6 + 0.4 * p_head, alpha_mult=clamp01((t - 0.05) / 0.18))
+
+                        p_pray = ease_out_back((t - 0.12) / 0.24)
+                        ox_pray = int((1.0 - p_pray) * 420)
+                        a_pray = clamp01((t - 0.12) / 0.15)
+                        if a_pray > 0:
+                            draw.line([(200, 520), (880, 520)], fill=(195, 150, 65, int(180 * a_pray)), width=3)
+                            paste_sprite_animated(frame, render_text_sprite(f"اوقات شرعی به افق {CITY_NAME_FA}", 44, "warm_bronze", False, 820), 540 + ox_pray, 575, alpha_mult=a_pray)
+                            paste_sprite_animated(frame, render_text_sprite(f"اذان صبح: {fajr}   |   طلوع آفتاب: {sunrise}", 38, "dark_charcoal", False, 820), 540 + ox_pray, 650, alpha_mult=a_pray)
+                            paste_sprite_animated(frame, render_text_sprite(f"اذان ظهر: {dhuhr}   |   اذان مغرب: {maghrib}", 38, "dark_charcoal", False, 820), 540 + ox_pray, 725, alpha_mult=a_pray)
+
+                        p_wea = ease_out_back((t - 0.22) / 0.24)
+                        ox_wea = -int((1.0 - p_wea) * 420)
+                        a_wea = clamp01((t - 0.22) / 0.15)
+                        if a_wea > 0:
+                            draw.line([(200, 790), (880, 790)], fill=(195, 150, 65, int(180 * a_wea)), width=3)
+                            paste_sprite_animated(frame, render_text_sprite("وضعیت آب و هوا", 44, "warm_bronze", False, 820), 540 + ox_wea, 845, alpha_mult=a_wea)
+                            paste_sprite_animated(frame, render_text_sprite(f"دمای فعلی: {round(w['temp'])} درجه سانتی گراد", 38, "dark_charcoal", False, 820), 540 + ox_wea, 920, alpha_mult=a_wea)
+                            paste_sprite_animated(frame, render_text_sprite(f"بیشینه دما: {round(w['max'])} درجه   |   کمینه دما: {round(w['min'])} درجه", 38, "dark_charcoal", False, 820), 540 + ox_wea, 990, alpha_mult=a_wea)
+
+                        p_mkt = ease_out_cubic((t - 0.30) / 0.32)
+                        a_mkt = clamp01((t - 0.28) / 0.15)
+                        if a_mkt > 0:
+                            draw.line([(200, 1050), (880, 1050)], fill=(195, 150, 65, int(180 * a_mkt)), width=3)
+                            paste_sprite_animated(frame, render_text_sprite("نبض بازار طلا و ارز", 44, "warm_bronze", False, 820), 540, 1105, alpha_mult=a_mkt)
+                            cur_usd = f"{int(usd_val * (0.45 + 0.55 * p_mkt)):,}" if p_mkt < 0.99 else usd_str
+                            cur_gold = f"{int(gold_val * (0.45 + 0.55 * p_mkt)):,}" if p_mkt < 0.99 else gold_str
+                            cur_coin = f"{int(coin_val * (0.45 + 0.55 * p_mkt)):,}" if p_mkt < 0.99 else coin_str
+                            paste_sprite_animated(frame, render_text_sprite(f"دلار آزاد: {cur_usd} ریال", 40, "dark_charcoal", False, 820), 540, 1185, alpha_mult=a_mkt)
+                            paste_sprite_animated(frame, render_text_sprite(f"طلای ۱۸ عیار: {cur_gold} ریال", 40, "dark_charcoal", False, 820), 540, 1260, alpha_mult=a_mkt)
+                            paste_sprite_animated(frame, render_text_sprite(f"سکه امامی: {cur_coin} ریال", 40, "dark_charcoal", False, 820), 540, 1335, alpha_mult=a_mkt)
+
+                        p_poem1 = clamp01((t - 0.45) / 0.22)
+                        p_poem2 = clamp01((t - 0.67) / 0.22)
+                        if p_poem1 > 0:
+                            sub_hem1 = " ".join(hem1_words[:max(1, int(math.ceil(len(hem1_words) * p_poem1)))])
+                            paste_sprite_animated(frame, render_text_sprite(sub_hem1, 34, "dark_emerald", False, 520), 540, 1718)
+                        if p_poem2 > 0:
+                            sub_hem2 = " ".join(hem2_words[:max(1, int(math.ceil(len(hem2_words) * p_poem2)))])
+                            paste_sprite_animated(frame, render_text_sprite(sub_hem2, 34, "dark_emerald", False, 520), 540, 1785)
+
+                    elif ptype == "weather":
+                        bg_zoom = 1.0 + 0.03 * t_full
+                        frame = apply_camera_zoom_and_shake(TEMPLATES_RAM["t2"], zoom=bg_zoom)
+                        p_morn, p_noon, p_eve, p_night = w.get("periods", (11, 19, 16, 9))
+
+                        crop_bar4 = frame.crop((200, 1640, 880, 1730)).convert("RGB")
+                        avg_b = sum(sum(px) for px in crop_bar4.getdata()) / (len(list(crop_bar4.getdata())) * 3)
+                        if avg_b < 45:
+                            ov_bar = Image.new("RGBA", frame.size, (0, 0, 0, 0))
+                            ImageDraw.Draw(ov_bar).rounded_rectangle([102, 1630, 978, 1752], radius=28, fill=(92, 88, 110, 215), outline=(195, 185, 205, 240), width=3)
+                            frame = Image.alpha_composite(frame, ov_bar)
+
+                        fx_layer = Image.new("RGBA", STORY_SIZE, (0, 0, 0, 0))
+                        fx_draw = ImageDraw.Draw(fx_layer)
+                        w_code = w.get("code", 0)
+                        if w_code in (51, 61, 63, 65, 80, 95):
+                            for p in particles:
+                                ry = (p["y"] + f_idx * 38) % 1750 + 80
+                                rx = (p["x"] - f_idx * 5) % 980 + 50
+                                fx_draw.line([(rx, ry), (rx - 7, ry + 32)], fill=(195, 225, 255, 165), width=2)
+                            if f_idx in (28, 29, 52, 110, 111, 165):
+                                fx_draw.rectangle([0, 0, 1080, 1920], fill=(240, 245, 255, 65))
+                        else:
+                            sun_cx, sun_cy = 775, 665
+                            for ray_i in range(12):
+                                ang = (ray_i * math.pi / 6.0) + (t_full * math.pi * 1.5)
+                                r_in, r_out = 115, 165 + int(18 * math.sin(f_idx * 0.25 + ray_i))
+                                fx_draw.line([
+                                    (sun_cx + int(r_in * math.cos(ang)), sun_cy + int(r_in * math.sin(ang))),
+                                    (sun_cx + int(r_out * math.cos(ang)), sun_cy + int(r_out * math.sin(ang)))
+                                ], fill=(255, 225, 130, 90), width=5)
+                        frame = Image.alpha_composite(frame, fx_layer)
+
+                        if not has_preprinted_weather_title(TEMPLATES_RAM["t2"]):
+                            paste_sprite_animated(frame, render_text_sprite(f"وضعیت آب و هوای {CITY_NAME_FA}", 84, "gold", True, 880), 540, 195)
+                            date_cy = 345
+                        else:
+                            date_cy = 335
+
+                        p_top = ease_out_back((t - 0.04) / 0.22)
+                        paste_sprite_animated(frame, render_text_sprite(short_date, 58, "white_crisp", False, 500), 540, date_cy, scale=0.6 + 0.4 * p_top, alpha_mult=clamp01(t / 0.15))
+
+                        p_temp = ease_out_cubic((t - 0.08) / 0.35)
+                        cur_temp_num = round(w["temp_int"] * p_temp)
+                        paste_sprite_animated(frame, render_text_sprite(f"{cur_temp_num} درجه", 112, "gold", True, 450), 350, 800, scale=0.85 + 0.15 * math.sin(p_temp * math.pi))
+                        paste_sprite_animated(frame, render_text_sprite(w["desc"], 48, "white_crisp", False, 320), 785, 985, alpha_mult=clamp01((t - 0.15) / 0.2))
+
+                        bars_data = [
+                            (0.20, 1, 1212, f"بیشینه روز: {round(w['max'])} درجه   /   کمینه شب: {round(w['min'])} درجه", 42, "white_crisp"),
+                            (0.30, -1, 1372, f"سرعت باد: {w['wind']} کیلومتر بر ساعت", 44, "white_crisp"),
+                            (0.40, 1, 1532, f"رطوبت هوا: {w['humidity']} درصد", 44, "white_crisp"),
+                            (0.50, -1, 1692, f"صبح: {p_morn} درجه  |  ظهر: {p_noon} درجه  |  عصر: {p_eve} درجه  |  شب: {p_night} درجه", 36, "gold")
+                        ]
+                        for t_start, dir_sign, by, btxt, bsize, bstyle in bars_data:
+                            pb = ease_out_back((t - t_start) / 0.24)
+                            ab = clamp01((t - t_start) / 0.14)
+                            ox = int(dir_sign * (1.0 - pb) * 480)
+                            paste_sprite_animated(frame, render_text_sprite(btxt, bsize, bstyle, False, 820), 540 + ox, by, alpha_mult=ab)
+
+                    elif ptype in ("match", "h2h") and m_obj is not None:
+                        shake_x, shake_y = 0, 0
+                        if 18 <= f_idx <= 24:
+                            amp = (25 - f_idx) * 2
+                            shake_x = int(amp * math.sin(f_idx * 2.7))
+                            shake_y = int(amp * math.cos(f_idx * 3.1))
+
+                        tpl_key = "t3" if ptype == "match" else "t4"
+                        frame = apply_camera_zoom_and_shake(TEMPLATES_RAM[tpl_key], zoom=1.0 + 0.025 * t_full, shake_x=shake_x, shake_y=shake_y)
+
+                        top_badge = overrides.get("badge", m_obj["league_title"] if ptype == "match" else f"روز بازی | {m_obj['league_fa']}")
+                        main_title = overrides.get("title", "گزارش و آمار کامل بازی" if ptype == "match" else "پیش بازی و تقابل رو در رو")
+
+                        p_head = ease_out_back(t / 0.20)
+                        paste_sprite_animated(frame, render_text_sprite(top_badge, 44, "white_crisp", True, 520), 540, int(-60 + 296 * p_head))
+                        paste_sprite_animated(frame, render_text_sprite(main_title, 76, "gold", True, 860), 540, 415, scale=0.5 + 0.5 * p_head, alpha_mult=clamp01(t / 0.15))
+
+                        lx_target, rx_target = (245, 835) if ptype == "match" else (244, 836)
+                        ly_target = 916 if ptype == "match" else 913
+                        ld = 186
+
+                        p_logo = ease_out_back((t - 0.06) / 0.22)
+                        cur_lx = int(-140 + (lx_target + 140) * p_logo)
+                        cur_rx = int(1220 - (1220 - rx_target) * p_logo)
+
+                        left_circle = fetch_logo_circle(m_obj["a_name"], m_obj["a_logo"], ld, is_large_ring=True)
+                        right_circle = fetch_logo_circle(m_obj["h_name"], m_obj["h_logo"], ld, is_large_ring=True)
+                        frame.paste(left_circle, (cur_lx - ld // 2, ly_target - ld // 2), left_circle)
+                        frame.paste(right_circle, (cur_rx - ld // 2, ly_target - ld // 2), right_circle)
+
+                        paste_sprite_animated(frame, render_text_sprite(m_obj["a_name"], 38, "white_crisp", True, 260), cur_lx, 1050, alpha_mult=clamp01((t - 0.12) / 0.15))
+                        paste_sprite_animated(frame, render_text_sprite(m_obj["h_name"], 38, "white_crisp", True, 260), cur_rx, 1050, alpha_mult=clamp01((t - 0.12) / 0.15))
+
+                        if ptype == "match" and t >= 0.22:
+                            sc_scale = 2.1 - 1.1 * clamp01((t - 0.22) / 0.14)
+                            score_str = overrides.get("score", f"{m_obj['a_g']} - {m_obj['h_g']}")
+                            paste_sprite_animated(frame, render_text_sprite(score_str, 126, "gold", True, 320), 540, 912, scale=max(1.0, sc_scale))
+
+                        overlay = Image.new("RGBA", frame.size, (0, 0, 0, 0))
+                        odraw = ImageDraw.Draw(overlay)
+                        odraw.rounded_rectangle([126, 1174, 954, 1612], radius=22, fill=(18, 23, 33, 248), outline=(215, 180, 105, 255), width=3)
+                        odraw.line([(200, 1295), (880, 1295)], fill=(215, 180, 105, 120), width=2)
+
+                        h_poss, a_poss, h_shots, a_shots, h_corn, a_corn = get_match_numeric_stats(m_obj)
+                        p_bars = ease_out_cubic((t - 0.34) / 0.42)
+
+                        if ptype == "match" and p_bars > 0:
+                            draw_dual_neon_progress_bar(odraw, 210, 1378, 870, h_poss, a_poss, p_bars)
+                            draw_dual_neon_progress_bar(odraw, 210, 1478, 870, h_shots, a_shots, p_bars)
+                            draw_dual_neon_progress_bar(odraw, 210, 1575, 870, h_corn, a_corn, p_bars)
+
+                        frame = Image.alpha_composite(frame, overlay)
+
+                        scorer_lines, _, _, _ = get_match_detailed_stats_fa(m_obj, overrides=overrides)
+                        a_stats = clamp01((t - 0.30) / 0.15)
+                        if a_stats > 0:
+                            if len(scorer_lines) == 1:
+                                paste_sprite_animated(frame, render_text_sprite(scorer_lines[0], 32, "gold", False, 760), 540, 1236, alpha_mult=a_stats)
+                            else:
+                                paste_sprite_animated(frame, render_text_sprite(scorer_lines[0], 28, "gold", False, 760), 540, 1218, alpha_mult=a_stats)
+                                paste_sprite_animated(frame, render_text_sprite(scorer_lines[1], 28, "gold", False, 760), 540, 1265, alpha_mult=a_stats)
+
+                            paste_sprite_animated(frame, render_text_sprite(f"مالکیت توپ: {m_obj['h_name']} %{int(h_poss * p_bars)}  -  %{int(a_poss * p_bars)} {m_obj['a_name']}", 35, "white_crisp", False, 760), 540, 1340, alpha_mult=a_stats)
+                            paste_sprite_animated(frame, render_text_sprite(f"شوت در چارچوب: {int(round(h_shots * p_bars))}  -  {int(round(a_shots * p_bars))}", 35, "white_crisp", False, 760), 540, 1440, alpha_mult=a_stats)
+                            paste_sprite_animated(frame, render_text_sprite(f"ضربات کرنر: {int(round(h_corn * p_bars))}  -  {int(round(a_corn * p_bars))}", 35, "white_crisp", False, 760), 540, 1538, alpha_mult=a_stats)
+
+                        paint_clean_bottom_gold_bar(frame, footer_text)
+
+                    else:
+                        frame = apply_camera_zoom_and_shake(TEMPLATES_RAM["t5"], zoom=1.0 + 0.025 * t_full)
+                        paste_sprite_animated(frame, render_text_sprite(title_top, 44, "white_crisp", True, 500), 540, 236)
+                        paste_sprite_animated(frame, render_text_sprite("جمع بندی نتایج روز", 76, "gold", True, 860), 540, 390)
+
+                        row_y_centers = [642, 842, 1042, 1242, 1442]
+                        lx, rx, diameter = 152, 928, 96
+                        for idx, m in enumerate((matches_list or [])[:5]):
+                            t_row_start = 0.08 + idx * 0.11
+                            p_row = ease_out_back((t - t_row_start) / 0.22)
+                            a_row = clamp01((t - t_row_start) / 0.12)
+                            if a_row <= 0:
+                                continue
+                            cy = row_y_centers[idx]
+                            ox = int((1.0 - p_row) * (420 if idx % 2 == 0 else -420))
+                            l_logo = fetch_logo_circle(m["a_name"], m["a_logo"], diameter, is_large_ring=False)
+                            r_logo = fetch_logo_circle(m["h_name"], m["h_logo"], diameter, is_large_ring=False)
+                            frame.paste(l_logo, (lx - diameter // 2, cy - diameter // 2), l_logo)
+                            frame.paste(r_logo, (rx - diameter // 2, cy - diameter // 2), r_logo)
+                            paste_sprite_animated(frame, render_text_sprite(f"{m['a_g']} - {m['h_g']}", 64, "gold", True, 180), 540, cy, scale=0.5 + 0.5 * p_row, alpha_mult=a_row)
+                            paste_sprite_animated(frame, render_text_sprite(m["h_name"], 36, "white_crisp", False, 235), 735 + ox, cy, alpha_mult=a_row)
+                            paste_sprite_animated(frame, render_text_sprite(m["a_name"], 36, "white_crisp", False, 235), 345 + ox, cy, alpha_mult=a_row)
+                        paint_clean_bottom_gold_bar(frame, footer_text)
+
+                    motes = Image.new("RGBA", STORY_SIZE, (0, 0, 0, 0))
+                    mdraw = ImageDraw.Draw(motes)
+                    for p in particles[:26]:
+                        py = (p["y"] - f_idx * p["speed"]) % 1760 + 60
+                        px = p["x"] + int(10 * math.sin(p["phase"] + f_idx * 0.15))
+                        alpha = int(85 + 75 * math.sin(p["phase"] + f_idx * 0.25))
+                        r = p["size"]
+                        mdraw.ellipse((px - r, py - r, px + r, py + r), fill=(aura_r, aura_g, aura_b, max(20, min(170, alpha))))
+                    frame = Image.alpha_composite(frame, motes)
+
+                    rgb_frame = frame.convert("RGB")
+                    if f_idx < 10:
+                        rgb_frame = rgb_frame.filter(ImageFilter.GaussianBlur(radius=(10 - f_idx) * 1.3))
+
+                    proc.stdin.write(rgb_frame.tobytes())
+
+                proc.stdin.close()
+                proc.wait(timeout=120)
+
+                if os.path.exists(out_mp4) and os.path.getsize(out_mp4) > 5000:
+                    with open(out_mp4, "rb") as f:
+                        return f.read()
+            except Exception as e:
+                print("Scenario video render error:", e)
+                try:
+                    proc.kill()
+                except Exception:
+                    pass
+            finally:
+                TEXT_SPRITE_RAM.clear()
+                gc.collect()
+    return None
+
+
+# =====================================================================
+# 6. State & Live Data Fetchers
+# =====================================================================
+def load_state():
+    st = {
+        "last_morning_date": "",
+        "last_wake_notice_date": "",
+        "last_sleep_notice_date": "",
+        "owner_chat_id": TELEGRAM_CHAT_ID,
+        "footer_text": DEFAULT_FOOTER,
+        "reel_badge": DEFAULT_REEL_BADGE,
+        "morning_hour": 7,
+        "awaiting_input": "",
+        "ig_target_page": DEFAULT_IG_PAGE,
+        "ig_sessionid": DEFAULT_IG_SESSION,
+        "matches": {}
+    }
+    if os.path.exists(STATE_FILE):
+        try:
+            with open(STATE_FILE, "r", encoding="utf-8") as f:
+                saved = json.load(f)
+                st.update(saved)
+        except Exception:
+            pass
+    if DEFAULT_IG_PAGE and not st.get("ig_target_page"):
+        st["ig_target_page"] = DEFAULT_IG_PAGE
+    if DEFAULT_IG_SESSION and not st.get("ig_sessionid"):
+        st["ig_sessionid"] = DEFAULT_IG_SESSION
+    return st
+
+
+def save_state(state):
+    try:
+        with open(STATE_FILE, "w", encoding="utf-8") as f:
+            json.dump(state, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+
+def get_target_chat_id(state):
+    return TELEGRAM_CHAT_ID or state.get("owner_chat_id", "")
+
+
+def refresh_daily_data_cache():
+    now_greg = jdatetime.datetime.now(TEHRAN_TZ).togregorian()
+    date_ddmmyyyy = now_greg.strftime("%d-%m-%Y")
+
+    try:
+        url = f"https://api.aladhan.com/v1/timingsByCity/{date_ddmmyyyy}?city={CITY_NAME_EN}&country=Iran&method=7"
+        t = requests.get(url, headers=HEADERS, timeout=8).json()["data"]["timings"]
+        clean_time = lambda s: re.sub(r"\s*\(.*?\)", "", s).strip()[:5]
+        CACHE["prayers"] = (clean_time(t["Fajr"]), clean_time(t["Sunrise"]), clean_time(t["Dhuhr"]), clean_time(t["Maghrib"]))
+    except Exception:
+        pass
+
+    try:
+        url = (
+            f"https://api.open-meteo.com/v1/forecast?latitude={CITY_LAT}&longitude={CITY_LON}"
+            "&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m"
+            "&hourly=temperature_2m&daily=temperature_2m_max,temperature_2m_min&timezone=Asia%2FTehran"
+        )
+        d = requests.get(url, headers=HEADERS, timeout=8).json()
+        cur, daily = d["current"], d["daily"]
+        hourly_temps = d.get("hourly", {}).get("temperature_2m", [])
+        if len(hourly_temps) >= 22:
+            periods = (round(hourly_temps[8]), round(hourly_temps[13]), round(hourly_temps[17]), round(hourly_temps[21]))
+        else:
+            periods = (round(daily["temperature_2m_min"][0] + 3), round(daily["temperature_2m_max"][0]), round(daily["temperature_2m_max"][0] - 3), round(daily["temperature_2m_min"][0]))
+        code = cur.get("weather_code", 0)
+        desc_map = {
+            0: "آسمان صاف", 1: "غالبا صاف", 2: "نیمه ابری", 3: "ابری",
+            45: "مه آلود", 48: "مه آلود", 51: "نم نم باران", 61: "بارش خفیف باران",
+            63: "بارانی", 65: "بارش شدید باران", 71: "بارش برف", 80: "رگبار باران", 95: "رعد و برق"
+        }
+        CACHE["weather"] = {
+            "temp": round(cur["temperature_2m"], 1), "temp_int": round(cur["temperature_2m"]),
+            "max": round(daily["temperature_2m_max"][0], 1), "min": round(daily["temperature_2m_min"][0], 1),
+            "wind": round(cur["wind_speed_10m"]), "humidity": round(cur["relative_humidity_2m"]),
+            "desc": desc_map.get(code, "آسمان صاف و معتدل"), "code": code, "periods": periods
+        }
+    except Exception:
+        pass
+
+    try:
+        r_json = requests.get(f"https://call1.tgju.org/ajax.json?rev={int(time.time())}", headers=HEADERS, timeout=8).json()
+        cur_m = r_json.get("current", {})
+        usd = cur_m.get("price_dollar_rl", {}).get("p")
+        gold = cur_m.get("geram18", {}).get("p")
+        coin = cur_m.get("sekee", {}).get("p")
+        if usd and gold and coin:
+            CACHE["market"] = (usd, gold, coin)
+            return
+    except Exception:
+        pass
+
+    try:
+        html = requests.get(f"https://www.tgju.org/?t={int(time.time())}", headers=HEADERS, timeout=10).text
+        def extract_price(slug):
+            m1 = re.search(rf'data-market-row="{slug}"[^>]*data-price="([\d,]+)"', html)
+            if m1:
+                return m1.group(1)
+            m2 = re.search(rf'data-market-row="{slug}"[^>]*>.*?<td class="nf"[^>]*>([\d,]+)</td>', html, re.DOTALL)
+            return m2.group(1) if m2 else None
+        usd, gold, coin = extract_price("price_dollar_rl"), extract_price("geram18"), extract_price("sekee")
+        if usd and gold and coin:
+            CACHE["market"] = (usd, gold, coin)
+    except Exception:
+        pass
+
+
+# =====================================================================
+# 7. Telegram API Helpers & Football Tracker
+# =====================================================================
+def setup_bot_commands():
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/setMyCommands"
+    commands = [
+        {"command": "morning", "description": "🌞 صبح بخیر (شرعیات، طلا و حافظ)"},
+        {"command": "weather", "description": "⛅ وضعیت آب و هوا (۴ زمانه)"},
+        {"command": "football", "description": "⚽ نتایج زنده و پوستر بازی ها"},
+        {"command": "viral", "description": "🎬 ریلزساز و قاب ویدیو"},
+        {"command": "insta", "description": "📸 رصد پیج عمومی اینستاگرام"},
+        {"command": "settings", "description": "⚙ تنظیمات ربات"}
+    ]
+    try:
+        requests.post(url, json={"commands": commands}, timeout=10)
+    except Exception:
+        pass
+
+
+def remember_sent_post(chat_id, message_id, meta):
+    if message_id:
+        if len(SENT_POSTS_MEM) > 80:
+            SENT_POSTS_MEM.clear()
+        SENT_POSTS_MEM[f"{chat_id}_{message_id}"] = meta
+
+
+def send_telegram_photo(chat_id, img, caption="", inline_kb=None, post_meta=None):
+    if not chat_id:
+        return None
+    bio = io.BytesIO()
+    img.convert("RGB").save(bio, format="JPEG", quality=93)
+    bio.seek(0)
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendPhoto"
+    data = {"chat_id": chat_id, "caption": caption}
+    if inline_kb:
+        data["reply_markup"] = json.dumps({"inline_keyboard": inline_kb})
+    elif not str(chat_id).startswith("@") and not str(chat_id).startswith("-"):
+        data["reply_markup"] = BOT_MENU_KEYBOARD
+    try:
+        r = requests.post(url, data=data, files={"photo": ("story.jpg", bio, "image/jpeg")}, timeout=25).json()
+        msg_id = r.get("result", {}).get("message_id")
+        if msg_id and post_meta:
+            remember_sent_post(chat_id, msg_id, post_meta)
+        return msg_id
+    except Exception as e:
+        print("Send photo error:", e)
+        return None
+
+
+def edit_telegram_photo_in_place(chat_id, message_id, img, caption="", inline_kb=None, post_meta=None):
+    if not chat_id or not message_id:
+        return False
+    bio = io.BytesIO()
+    img.convert("RGB").save(bio, format="JPEG", quality=93)
+    bio.seek(0)
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/editMessageMedia"
+    data = {
+        "chat_id": chat_id,
+        "message_id": message_id,
+        "media": json.dumps({"type": "photo", "media": "attach://photo", "caption": caption})
+    }
+    if inline_kb:
+        data["reply_markup"] = json.dumps({"inline_keyboard": inline_kb})
+    try:
+        r = requests.post(url, data=data, files={"photo": ("story.jpg", bio, "image/jpeg")}, timeout=25).json()
+        if r.get("ok"):
+            if post_meta:
+                remember_sent_post(chat_id, message_id, post_meta)
+            return True
+    except Exception as e:
+        print("Edit photo error:", e)
+    return False
+
+
+def send_telegram_video(chat_id, video_bytes, caption="", post_meta=None):
+    if not chat_id or not video_bytes:
+        return None
+    bio = io.BytesIO(video_bytes)
+    bio.seek(0)
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendVideo"
+    data = {"chat_id": chat_id, "caption": caption, "supports_streaming": True, "width": 1080, "height": 1920}
+    if not str(chat_id).startswith("@") and not str(chat_id).startswith("-"):
+        data["reply_markup"] = BOT_MENU_KEYBOARD
+    try:
+        r = requests.post(url, data=data, files={"video": ("reel_story.mp4", bio, "video/mp4")}, timeout=90).json()
+        msg_id = r.get("result", {}).get("message_id")
+        if msg_id and post_meta:
+            remember_sent_post(chat_id, msg_id, post_meta)
+        return msg_id
+    except Exception as e:
+        print("Send video error:", e)
+        return None
+
+
+def download_telegram_file(file_id, dest_path):
+    try:
+        r = requests.get(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/getFile", params={"file_id": file_id}, timeout=15).json()
+        file_path = r.get("result", {}).get("file_path")
+        if not file_path:
+            return False
+        with requests.get(f"https://api.telegram.org/file/bot{TELEGRAM_BOT_TOKEN}/{file_path}", stream=True, timeout=45) as resp:
+            if resp.status_code == 200:
+                with open(dest_path, "wb") as f:
+                    for chunk in resp.iter_content(chunk_size=65536):
+                        if chunk:
+                            f.write(chunk)
+                return os.path.exists(dest_path) and os.path.getsize(dest_path) > 5000
+    except Exception:
+        pass
+    return False
+
+
+def register_and_check_match(state, matches_mem, lg_key, match_id, league_fa, is_iran, h_name, a_name, h_g, a_g, h_logo, a_logo, is_live, is_finished, minute_str="", scorers_list=None, allow_auto_alert=True):
+    if is_live:
+        status_emoji = "🔴"
+        status_label = f"زنده (دقیقه {to_fa_digits(minute_str)})" if minute_str else "زنده"
+        header_prefix = "زنده"
+        line_str = f"🔴 زنده ({to_fa_digits(minute_str)}') | {h_name} {to_fa_digits(h_g)} - {to_fa_digits(a_g)} {a_name}" if minute_str else f"🔴 زنده | {h_name} {to_fa_digits(h_g)} - {to_fa_digits(a_g)} {a_name}"
+        CACHE["leagues"][lg_key]["has_live"] = True
+    elif is_finished:
+        status_emoji = "🏁"
+        status_label = "پایان بازی"
+        header_prefix = "نتیجه نهایی"
+        line_str = f"🏁 پایان | {h_name} {to_fa_digits(h_g)} - {to_fa_digits(a_g)} {a_name}"
+    else:
+        status_emoji = "⏰"
+        status_label = f"در انتظار شروع ({to_fa_digits(minute_str)})" if minute_str else "در انتظار شروع"
+        header_prefix = "برنامه بازی"
+        line_str = f"⏰ {to_fa_digits(minute_str)} | {h_name} - {a_name}" if minute_str else f"⏰ در انتظار شروع | {h_name} - {a_name}"
+
+    m_obj = {
+        "id": match_id, "status_emoji": status_emoji, "status_label": status_label,
+        "league_title": f"{header_prefix} | {league_fa}", "league_fa": league_fa,
+        "h_name": h_name, "a_name": a_name, "h_g": h_g, "a_g": a_g,
+        "h_logo": h_logo, "a_logo": a_logo, "is_live": is_live, "is_finished": is_finished,
+        "scorers_list": scorers_list or []
+    }
+    CACHE["matches_by_id"][match_id] = m_obj
+    CACHE["leagues"][lg_key]["lines"].append(line_str)
+    CACHE["leagues"][lg_key]["match_ids"].append(match_id)
+
+    if is_live:
+        CACHE["live_match_ids"].append(match_id)
+        CACHE["live_lines"].append(f"🏆 {league_fa}: {line_str}")
+
+    if not allow_auto_alert:
+        return
+
+    if match_id not in matches_mem:
+        matches_mem[match_id] = {"h": h_g, "a": a_g, "ft": is_finished, "msg_id": None}
+        return
+
+    prev = matches_mem[match_id]
+    target_chat = get_target_chat_id(state)
+    footer = state.get("footer_text", DEFAULT_FOOTER)
+
+    if is_iran and is_live and (h_g > prev["h"] or a_g > prev["a"]):
+        scorer = h_name if h_g > prev["h"] else a_name
+        if target_chat:
+            img = build_match_image(m_obj, footer_text=footer)
+            caption = f"🔴 زنده | گل برای {scorer}!\n⚽ {h_name} {to_fa_digits(h_g)} - {to_fa_digits(a_g)} {a_name}\n🔄 (این پوستر با هر گل به صورت خودکار آپدیت می شود)"
+            kb = [[{"text": "🎬 دریافت ویدیو موشن گرافیک (MP4)", "callback_data": f"mkvid_match_{match_id}"}]]
+            meta = {"type": "match", "mid": match_id, "overrides": {}, "caption": caption, "kb": kb}
+            edited = edit_telegram_photo_in_place(target_chat, prev["msg_id"], img, caption=caption, inline_kb=kb, post_meta=meta) if prev.get("msg_id") else False
+            if not edited:
+                prev["msg_id"] = send_telegram_photo(target_chat, img, caption=caption, inline_kb=kb, post_meta=meta)
+        prev["h"], prev["a"] = h_g, a_g
+
+    if is_finished and not prev["ft"]:
+        if target_chat:
+            img = build_match_image(m_obj, footer_text=footer)
+            caption = f"🏁 پایان بازی ({league_fa})\n⚽ {h_name} {to_fa_digits(h_g)} - {to_fa_digits(a_g)} {a_name}"
+            kb = [[{"text": "🎬 دریافت ویدیو موشن گرافیک (MP4)", "callback_data": f"mkvid_match_{match_id}"}]]
+            meta = {"type": "match", "mid": match_id, "overrides": {}, "caption": caption, "kb": kb}
+            edited = edit_telegram_photo_in_place(target_chat, prev["msg_id"], img, caption=caption, inline_kb=kb, post_meta=meta) if prev.get("msg_id") else False
+            if not edited:
+                prev["msg_id"] = send_telegram_photo(target_chat, img, caption=caption, inline_kb=kb, post_meta=meta)
+        prev["ft"] = True
+        prev["h"], prev["a"] = h_g, a_g
+
+
+def check_all_football_free(state):
+    matches_mem = state.setdefault("matches", {})
+    now_greg = jdatetime.datetime.now(TEHRAN_TZ).togregorian()
+    today_compact = now_greg.strftime("%Y%m%d")
+
+    CACHE["live_match_ids"] = []
+    CACHE["live_lines"] = []
+    for lg_key, lg_title in LEAGUE_CATEGORIES:
+        CACHE["leagues"][lg_key] = {"title": lg_title, "lines": [], "match_ids": [], "has_live": False}
+
+    for day_offset in [0, -1, 1, -2, 2]:
+        target_date = (now_greg + timedelta(days=day_offset)).strftime("%Y%m%d")
+        is_today = (day_offset == 0)
+        found_iran = False
+        try:
+            f_leagues = requests.get(f"https://www.fotmob.com/api/matches?date={target_date}", headers=HEADERS, timeout=10).json().get("leagues", [])
+            for lg in f_leagues:
+                lid = lg.get("primaryId")
+                if lid not in (9090, 9384):
+                    continue
+                found_iran = True
+                l_fa = "لیگ برتر ایران" if lid == 9090 else "جام حذفی ایران"
+                for m in lg.get("matches", []):
+                    mid = f"ir_{m['id']}"
+                    st = m.get("status", {})
+                    register_and_check_match(
+                        state, matches_mem, "lg_ir", mid, l_fa, True,
+                        to_persian_text(m["home"]["name"]), to_persian_text(m["away"]["name"]),
+                        int(m["home"].get("score", 0) or 0), int(m["away"].get("score", 0) or 0),
+                        f"https://images.fotmob.com/image_resources/logo/teamlogo/{m['home']['id']}.png",
+                        f"https://images.fotmob.com/image_resources/logo/teamlogo/{m['away']['id']}.png",
+                        st.get("started", False) and not st.get("finished", False),
+                        st.get("finished", False),
+                        st.get("liveTime", {}).get("short", "").replace("'", ""),
+                        allow_auto_alert=is_today
+                    )
+        except Exception:
+            pass
+        if found_iran:
+            break
+
+    espn_configs = [
+        ("lg_eng", "eng.1", "لیگ برتر انگلیس"),
+        ("lg_esp", "esp.1", "لالیگا اسپانیا"),
+        ("lg_ger", "ger.1", "بوندسلیگا آلمان"),
+        ("lg_ucl", "uefa.champions", "لیگ قهرمانان اروپا")
+    ]
+    for lg_key, code, l_fa in espn_configs:
+        try:
+            events = requests.get(f"https://site.api.espn.com/apis/site/v2/sports/soccer/{code}/scoreboard?dates={today_compact}", headers=HEADERS, timeout=10).json().get("events", [])
+            is_today_batch = True
+            if not events:
+                events = requests.get(f"https://site.api.espn.com/apis/site/v2/sports/soccer/{code}/scoreboard", headers=HEADERS, timeout=10).json().get("events", [])
+                is_today_batch = False
+
+            for ev in events[:10]:
+                mid = f"eu_{ev['id']}"
+                comp = ev["competitions"][0]
+                state_type = ev["status"]["type"]["state"]
+                home = next(c for c in comp["competitors"] if c["homeAway"] == "home")
+                away = next(c for c in comp["competitors"] if c["homeAway"] == "away")
+
+                scorers_list = []
+                for det in comp.get("details", []):
+                    if det.get("scoringPlay"):
+                        clock = det.get("clock", {}).get("displayValue", "").replace("'", "")
+                        athletes = det.get("athletesInvolved", [])
+                        if athletes:
+                            scorers_list.append(f"{to_persian_text(athletes[0].get('displayName', ''))} ({to_fa_digits(clock)})")
+
+                register_and_check_match(
+                    state, matches_mem, lg_key, mid, l_fa, False,
+                    to_persian_text(home["team"]["displayName"]), to_persian_text(away["team"]["displayName"]),
+                    int(home.get("score", 0) or 0), int(away.get("score", 0) or 0),
+                    home["team"].get("logo", ""), away["team"].get("logo", ""),
+                    state_type == "in", state_type == "post",
+                    ev["status"]["type"].get("shortDetail", ""),
+                    scorers_list=scorers_list, allow_auto_alert=is_today_batch
+                )
+        except Exception:
+            pass
+
 
