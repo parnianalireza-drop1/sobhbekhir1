@@ -1,7 +1,7 @@
 {
   "last_morning_date": "",
   "last_wake_notice_date": "2026-11-21",
-  "last_sleep_notice_date": "",
+  "last_sleep_notice_date": "2026-11-21",
   "owner_chat_id": "30956754",
   "footer_text": "آخرین خبرهای شیراز",
   "reel_badge": "خبر فوری",
@@ -19,7 +19,7 @@
     "ir_ls_1918613": {
       "h": 2,
       "a": 2,
-      "ft": false,
+      "ft": true,
       "msg_id": 522
     },
     "ir_ls_1918600": {
@@ -53,34 +53,34 @@
       "msg_id": 520
     },
     "eu_401879238": {
-      "h": 0,
+      "h": 2,
       "a": 0,
-      "ft": false,
-      "msg_id": null
+      "ft": true,
+      "msg_id": 540
     },
     "eu_401878756": {
       "h": 0,
       "a": 0,
-      "ft": false,
-      "msg_id": null
+      "ft": true,
+      "msg_id": 539
     },
     "eu_401879236": {
-      "h": 0,
-      "a": 0,
-      "ft": false,
-      "msg_id": null
+      "h": 1,
+      "a": 4,
+      "ft": true,
+      "msg_id": 543
     },
     "eu_401879235": {
-      "h": 0,
-      "a": 0,
-      "ft": false,
-      "msg_id": null
+      "h": 3,
+      "a": 2,
+      "ft": true,
+      "msg_id": 542
     },
     "eu_401878754": {
-      "h": 0,
+      "h": 2,
       "a": 0,
-      "ft": false,
-      "msg_id": null
+      "ft": true,
+      "msg_id": 541
     },
     "eu_401879232": {
       "h": 0,
@@ -96,9 +96,9 @@
     },
     "eu_401882799": {
       "h": 0,
-      "a": 0,
-      "ft": false,
-      "msg_id": null
+      "a": 1,
+      "ft": true,
+      "msg_id": 544
     },
     "eu_401882797": {
       "h": 0,
@@ -119,34 +119,34 @@
       "msg_id": 509
     },
     "eu_401884732": {
-      "h": 0,
-      "a": 0,
-      "ft": false,
-      "msg_id": null
+      "h": 1,
+      "a": 5,
+      "ft": true,
+      "msg_id": 534
     },
     "eu_401884735": {
-      "h": 0,
+      "h": 4,
       "a": 0,
-      "ft": false,
-      "msg_id": null
+      "ft": true,
+      "msg_id": 531
     },
     "eu_401884731": {
       "h": 0,
-      "a": 0,
-      "ft": false,
-      "msg_id": null
+      "a": 1,
+      "ft": true,
+      "msg_id": 532
     },
     "eu_401884734": {
-      "h": 0,
+      "h": 1,
       "a": 0,
-      "ft": false,
-      "msg_id": null
+      "ft": true,
+      "msg_id": 533
     },
     "eu_401884728": {
       "h": 0,
-      "a": 0,
-      "ft": false,
-      "msg_id": null
+      "a": 1,
+      "ft": true,
+      "msg_id": 530
     },
     "eu_401884729": {
       "h": 0,
