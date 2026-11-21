@@ -645,7 +645,7 @@ def build_match_image(m, footer_text=DEFAULT_FOOTER, overrides=None):
     base.paste(left_circle, (lx - ld // 2, ly - ld // 2), left_circle)
     base.paste(right_circle, (rx - rd // 2, ry - rd // 2), right_circle)
 
-    draw_luxury_text(base, 540, 912, overrides.get("score", f"{m['a_g']} - {m['h_g']}"), 126, style="gold", use_display_font=True, max_width=320)
+    draw_luxury_text(base, 540, 912, overrides.get("score", f"{m['h_g']} - {m['a_g']}"), 126, style="gold", use_display_font=True, max_width=320)
     draw_luxury_text(base, lx, 1052, m["a_name"], 38, style="white_crisp", use_display_font=True, max_width=260)
     draw_luxury_text(base, rx, 1052, m["h_name"], 38, style="white_crisp", use_display_font=True, max_width=260)
 
@@ -727,7 +727,7 @@ def build_multi_match_image(matches_list, title_top="نتایج بازی های 
         r_logo = fetch_logo_circle(m["h_name"], m["h_logo"], diameter, is_large_ring=False)
         base.paste(l_logo, (lx - diameter // 2, cy - diameter // 2), l_logo)
         base.paste(r_logo, (rx - diameter // 2, cy - diameter // 2), r_logo)
-        draw_luxury_text(base, 540, cy, f"{m['a_g']} - {m['h_g']}", 64, style="gold", use_display_font=True, max_width=180)
+        draw_luxury_text(base, 540, cy, f"{m['h_g']} - {m['a_g']}", 64, style="gold", use_display_font=True, max_width=180)
         draw_luxury_text(base, 735, cy, m["h_name"], 36, style="white_crisp", max_width=235)
         draw_luxury_text(base, 345, cy, m["a_name"], 36, style="white_crisp", max_width=235)
 
@@ -1154,7 +1154,7 @@ def generate_scenario_video_mp4(ptype, state, m_obj=None, matches_list=None, tit
 
                         if ptype == "match" and t >= 0.22:
                             sc_scale = 2.1 - 1.1 * clamp01((t - 0.22) / 0.14)
-                            score_str = overrides.get("score", f"{m_obj['a_g']} - {m_obj['h_g']}")
+                            score_str = overrides.get("score", f"{m_obj['h_g']} - {m_obj['a_g']}")
                             paste_sprite_animated(frame, render_text_sprite(score_str, 126, "gold", True, 320), 540, 912, scale=max(1.0, sc_scale))
 
                         overlay = Image.new("RGBA", frame.size, (0, 0, 0, 0))
@@ -1206,7 +1206,7 @@ def generate_scenario_video_mp4(ptype, state, m_obj=None, matches_list=None, tit
                             r_logo = fetch_logo_circle(m["h_name"], m["h_logo"], diameter, is_large_ring=False)
                             frame.paste(l_logo, (lx - diameter // 2, cy - diameter // 2), l_logo)
                             frame.paste(r_logo, (rx - diameter // 2, cy - diameter // 2), r_logo)
-                            paste_sprite_animated(frame, render_text_sprite(f"{m['a_g']} - {m['h_g']}", 64, "gold", True, 180), 540, cy, scale=0.5 + 0.5 * p_row, alpha_mult=a_row)
+                            paste_sprite_animated(frame, render_text_sprite(f"{m['h_g']} - {m['a_g']}", 64, "gold", True, 180), 540, cy, scale=0.5 + 0.5 * p_row, alpha_mult=a_row)
                             paste_sprite_animated(frame, render_text_sprite(m["h_name"], 36, "white_crisp", False, 235), 735 + ox, cy, alpha_mult=a_row)
                             paste_sprite_animated(frame, render_text_sprite(m["a_name"], 36, "white_crisp", False, 235), 345 + ox, cy, alpha_mult=a_row)
                         paint_clean_bottom_gold_bar(frame, footer_text)
