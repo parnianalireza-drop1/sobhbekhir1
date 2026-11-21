@@ -1,0 +1,164 @@
+{
+  "last_morning_date": "",
+  "last_wake_notice_date": "2026-11-21",
+  "last_sleep_notice_date": "",
+  "owner_chat_id": "30956754",
+  "footer_text": "آخرین خبرهای شیراز",
+  "reel_badge": "خبر فوری",
+  "morning_hour": 7,
+  "awaiting_input": "",
+  "ig_target_page": "shirazlastnews",
+  "ig_sessionid": "",
+  "matches": {
+    "ir_ls_1918625": {
+      "h": 0,
+      "a": 0,
+      "ft": false,
+      "msg_id": null
+    },
+    "ir_ls_1918613": {
+      "h": 0,
+      "a": 0,
+      "ft": false,
+      "msg_id": null
+    },
+    "ir_ls_1918600": {
+      "h": 1,
+      "a": 1,
+      "ft": true,
+      "msg_id": 504
+    },
+    "ir_ls_1918611": {
+      "h": 3,
+      "a": 0,
+      "ft": true,
+      "msg_id": 507
+    },
+    "ir_ls_1918612": {
+      "h": 3,
+      "a": 0,
+      "ft": true,
+      "msg_id": 506
+    },
+    "ir_ls_1918601": {
+      "h": 2,
+      "a": 1,
+      "ft": true,
+      "msg_id": 508
+    },
+    "eu_401879233": {
+      "h": 0,
+      "a": 0,
+      "ft": false,
+      "msg_id": null
+    },
+    "eu_401879238": {
+      "h": 0,
+      "a": 0,
+      "ft": false,
+      "msg_id": null
+    },
+    "eu_401878756": {
+      "h": 0,
+      "a": 0,
+      "ft": false,
+      "msg_id": null
+    },
+    "eu_401879236": {
+      "h": 0,
+      "a": 0,
+      "ft": false,
+      "msg_id": null
+    },
+    "eu_401879235": {
+      "h": 0,
+      "a": 0,
+      "ft": false,
+      "msg_id": null
+    },
+    "eu_401878754": {
+      "h": 0,
+      "a": 0,
+      "ft": false,
+      "msg_id": null
+    },
+    "eu_401879232": {
+      "h": 0,
+      "a": 0,
+      "ft": false,
+      "msg_id": null
+    },
+    "eu_401882806": {
+      "h": 0,
+      "a": 0,
+      "ft": false,
+      "msg_id": null
+    },
+    "eu_401882799": {
+      "h": 0,
+      "a": 0,
+      "ft": false,
+      "msg_id": null
+    },
+    "eu_401882797": {
+      "h": 0,
+      "a": 0,
+      "ft": false,
+      "msg_id": null
+    },
+    "eu_401882798": {
+      "h": 0,
+      "a": 0,
+      "ft": false,
+      "msg_id": null
+    },
+    "eu_401882805": {
+      "h": 0,
+      "a": 1,
+      "ft": true,
+      "msg_id": 509
+    },
+    "eu_401884732": {
+      "h": 0,
+      "a": 0,
+      "ft": false,
+      "msg_id": null
+    },
+    "eu_401884735": {
+      "h": 0,
+      "a": 0,
+      "ft": false,
+      "msg_id": null
+    },
+    "eu_401884731": {
+      "h": 0,
+      "a": 0,
+      "ft": false,
+      "msg_id": null
+    },
+    "eu_401884734": {
+      "h": 0,
+      "a": 0,
+      "ft": false,
+      "msg_id": null
+    },
+    "eu_401884728": {
+      "h": 0,
+      "a": 0,
+      "ft": false,
+      "msg_id": null
+    },
+    "eu_401884729": {
+      "h": 0,
+      "a": 0,
+      "ft": false,
+      "msg_id": null
+    },
+    "eu_401884736": {
+      "h": 1,
+      "a": 1,
+      "ft": true,
+      "msg_id": null
+    }
+  }
+}
