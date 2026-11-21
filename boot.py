@@ -1467,40 +1467,133 @@ def download_telegram_file(file_id, dest_path):
     return False
 
 
-def register_and_check_match(state, matches_mem, lg_key, match_id, league_fa, is_iran, h_name, a_name, h_g, a_g, h_logo, a_logo, is_live, is_finished, minute_str="", scorers_list=None, allow_auto_alert=True):
-    if is_live:
+def _safe_int(val, default=0):
+    try:
+        if val is None:
+            return default
+        s = str(val).strip()
+        if not s or s == "-":
+            return default
+        return int(float(s))
+    except Exception:
+        return default
+
+
+def _football_get_json(url, headers=None, timeout=12):
+    try:
+        if "http_get_stealth" in globals():
+            r = http_get_stealth(url, headers=headers, timeout=timeout)
+        else:
+            hdrs = dict(HEADERS)
+            if headers:
+                hdrs.update(headers)
+            r = requests.get(url, headers=hdrs, timeout=timeout)
+        if r.status_code == 200:
+            return r.json()
+        print(f"[Football] HTTP {r.status_code}: {url[:85]}")
+    except Exception as e:
+        print(f"[Football] Fetch error ({url[:65]}): {e}")
+    return None
+
+
+def _format_tehran_kickoff(dt_tehran, now_dt):
+    months_fa = ["", "فروردین", "اردیبهشت", "خرداد", "تیر", "مرداد", "شهریور",
+                 "مهر", "آبان", "آذر", "دی", "بهمن", "اسفند"]
+    hhmm = dt_tehran.strftime("%H:%M")
+    m_date = dt_tehran.date()
+    t_date = now_dt.date()
+    if m_date == t_date:
+        return f"امروز {hhmm}"
+    if m_date == t_date + timedelta(days=1):
+        return f"فردا {hhmm}"
+    if m_date == t_date - timedelta(days=1):
+        return f"دیروز {hhmm}"
+    jdt = jdatetime.date.fromgregorian(date=m_date)
+    return f"{jdt.day} {months_fa[jdt.month]} {hhmm}"
+
+
+def register_and_check_match(
+    state, matches_mem, lg_key, match_id, league_fa, is_iran,
+    h_name, a_name, h_g, a_g, h_logo, a_logo,
+    is_live, is_finished, minute_str="", scorers_list=None,
+    allow_auto_alert=True, day_tag="", is_postponed=False,
+    real_stats=None, bucket=None
+):
+    if bucket is not None:
+        if match_id in bucket["leagues"][lg_key]["seen_ids"]:
+            return
+        bucket["leagues"][lg_key]["seen_ids"].add(match_id)
+
+    h_g = _safe_int(h_g, 0)
+    a_g = _safe_int(a_g, 0)
+
+    if is_postponed:
+        status_emoji = "⚠"
+        status_label = "لغو یا تعویق"
+        header_prefix = "اطلاعیه بازی"
+        line_str = f"⚠ تعویق | {h_name} - {a_name}"
+        sort_rank = 4
+    elif is_live:
         status_emoji = "🔴"
-        status_label = f"زنده (دقیقه {to_fa_digits(minute_str)})" if minute_str else "زنده"
+        clean_min = str(minute_str or "").strip()
+        if clean_min == "بین دو نیمه":
+            status_label = "زنده (بین دو نیمه)"
+            line_str = f"🔴 بین دو نیمه | {h_name} {to_fa_digits(h_g)} - {to_fa_digits(a_g)} {a_name}"
+        elif clean_min:
+            status_label = f"زنده (دقیقه {to_fa_digits(clean_min)})"
+            line_str = f"🔴 زنده ({to_fa_digits(clean_min)}') | {h_name} {to_fa_digits(h_g)} - {to_fa_digits(a_g)} {a_name}"
+        else:
+            status_label = "زنده"
+            line_str = f"🔴 زنده | {h_name} {to_fa_digits(h_g)} - {to_fa_digits(a_g)} {a_name}"
         header_prefix = "زنده"
-        line_str = f"🔴 زنده ({to_fa_digits(minute_str)}') | {h_name} {to_fa_digits(h_g)} - {to_fa_digits(a_g)} {a_name}" if minute_str else f"🔴 زنده | {h_name} {to_fa_digits(h_g)} - {to_fa_digits(a_g)} {a_name}"
-        CACHE["leagues"][lg_key]["has_live"] = True
+        sort_rank = 0
+        if bucket is not None:
+            bucket["leagues"][lg_key]["has_live"] = True
+        else:
+            CACHE["leagues"][lg_key]["has_live"] = True
     elif is_finished:
         status_emoji = "🏁"
-        status_label = "پایان بازی"
+        status_label = "نتیجه دیروز" if day_tag == "دیروز" else "پایان بازی"
         header_prefix = "نتیجه نهایی"
-        line_str = f"🏁 پایان | {h_name} {to_fa_digits(h_g)} - {to_fa_digits(a_g)} {a_name}"
+        lbl_fin = "دیروز" if day_tag == "دیروز" else "پایان"
+        line_str = f"🏁 {lbl_fin} | {h_name} {to_fa_digits(h_g)} - {to_fa_digits(a_g)} {a_name}"
+        sort_rank = 3 if day_tag == "دیروز" else 2
     else:
         status_emoji = "⏰"
-        status_label = f"در انتظار شروع ({to_fa_digits(minute_str)})" if minute_str else "در انتظار شروع"
+        clean_min = str(minute_str or "").strip()
+        status_label = f"شروع: {to_fa_digits(clean_min)}" if clean_min else "در انتظار شروع"
         header_prefix = "برنامه بازی"
-        line_str = f"⏰ {to_fa_digits(minute_str)} | {h_name} - {a_name}" if minute_str else f"⏰ در انتظار شروع | {h_name} - {a_name}"
+        line_str = f"⏰ {to_fa_digits(clean_min)} | {h_name} - {a_name}" if clean_min else f"⏰ در انتظار شروع | {h_name} - {a_name}"
+        sort_rank = 1
 
     m_obj = {
         "id": match_id, "status_emoji": status_emoji, "status_label": status_label,
         "league_title": f"{header_prefix} | {league_fa}", "league_fa": league_fa,
         "h_name": h_name, "a_name": a_name, "h_g": h_g, "a_g": a_g,
-        "h_logo": h_logo, "a_logo": a_logo, "is_live": is_live, "is_finished": is_finished,
+        "h_logo": h_logo or "", "a_logo": a_logo or "",
+        "is_live": is_live, "is_finished": is_finished,
         "scorers_list": scorers_list or []
     }
+    if isinstance(real_stats, dict):
+        for sk in ("h_poss", "h_shots", "a_shots", "h_corn", "a_corn"):
+            if real_stats.get(sk) is not None:
+                m_obj[sk] = real_stats[sk]
+
     CACHE["matches_by_id"][match_id] = m_obj
-    CACHE["leagues"][lg_key]["lines"].append(line_str)
-    CACHE["leagues"][lg_key]["match_ids"].append(match_id)
 
-    if is_live:
-        CACHE["live_match_ids"].append(match_id)
-        CACHE["live_lines"].append(f"🏆 {league_fa}: {line_str}")
+    if bucket is not None:
+        bucket["leagues"][lg_key]["entries"].append((sort_rank, line_str, match_id))
+        if is_live:
+            bucket["live_match_ids"].append(match_id)
+            bucket["live_lines"].append(f"🏆 {league_fa}: {line_str}")
+    else:
+        CACHE["leagues"][lg_key]["lines"].append(line_str)
+        CACHE["leagues"][lg_key]["match_ids"].append(match_id)
+        if is_live:
+            CACHE["live_match_ids"].append(match_id)
+            CACHE["live_lines"].append(f"🏆 {league_fa}: {line_str}")
 
-    if not allow_auto_alert:
+    if not allow_auto_alert or is_postponed:
         return
 
     if match_id not in matches_mem:
@@ -1536,46 +1629,298 @@ def register_and_check_match(state, matches_mem, lg_key, match_id, league_fa, is
         prev["h"], prev["a"] = h_g, a_g
 
 
+def _fetch_livescore_day_stages(date_compact):
+    urls = [
+        f"https://prod-cdn-mev-api.livescore.com/v1/api/app/date/soccer/{date_compact}/3.5?countryCode=IR&locale=en",
+        f"https://prod-public-api.livescore.com/v1/api/react/date/soccer/{date_compact}/3.5?MD=1"
+    ]
+    for u in urls:
+        data = _football_get_json(u, timeout=12)
+        if isinstance(data, dict) and data.get("Stages"):
+            return data["Stages"]
+    return []
+
+
+def _parse_livescore_events_into_bucket(stages, state, matches_mem, bucket, now_dt, day_tag, target_lg_keys, allow_auto_alert):
+    from datetime import datetime as _dt
+    added_count = 0
+
+    for stg in stages:
+        cnm = str(stg.get("Cnm", "") or "").lower()
+        ccd = str(stg.get("Ccd", "") or "").lower()
+        snm = str(stg.get("Snm", "") or "").lower()
+        scd = str(stg.get("Scd", "") or "").lower()
+
+        lg_key, l_fa, is_iran = None, "", False
+
+        if ccd == "iran" or cnm == "iran":
+            if any(x in snm or x in scd for x in ("women", "u21", "u23", "u19", "azadegan", "division", "league 2")):
+                continue
+            if any(x in snm or x in scd for x in ("persian", "pro league", "premier", "gulf")):
+                lg_key, l_fa, is_iran = "lg_ir", "لیگ برتر ایران", True
+            elif "hazfi" in snm or "cup" in snm:
+                lg_key, l_fa, is_iran = "lg_ir", "جام حذفی ایران", True
+        elif ccd == "england" and scd == "premier-league":
+            lg_key, l_fa = "lg_eng", "لیگ برتر انگلیس"
+        elif ccd == "spain" and (scd in ("laliga", "laliga-santander", "primera-division") or "laliga" in snm):
+            if "2" not in scd and "hypermotion" not in snm and "women" not in snm:
+                lg_key, l_fa = "lg_esp", "لالیگا اسپانیا"
+        elif ccd == "germany" and scd == "bundesliga":
+            lg_key, l_fa = "lg_ger", "بوندسلیگا آلمان"
+        elif ("champions-league" in ccd or "champions league" in cnm) and not any(x in ccd or x in snm for x in ("women", "youth", "afc", "caf", "concacaf", "ofc")):
+            lg_key, l_fa = "lg_ucl", "لیگ قهرمانان اروپا"
+
+        if not lg_key or lg_key not in target_lg_keys:
+            continue
+
+        for ev in (stg.get("Events") or []):
+            t1_list = ev.get("T1") or []
+            t2_list = ev.get("T2") or []
+            if not t1_list or not t2_list:
+                continue
+            t1, t2 = t1_list[0], t2_list[0]
+            h_raw = str(t1.get("Nm", "") or "").strip()
+            a_raw = str(t2.get("Nm", "") or "").strip()
+            if not h_raw or not a_raw:
+                continue
+
+            eid = str(ev.get("Eid", "") or hashlib.md5(f"{h_raw}_{a_raw}_{day_tag}".encode()).hexdigest()[:10])
+            mid = f"{'ir' if is_iran else 'eu'}_ls_{eid}"
+
+            eps = str(ev.get("Eps", "") or "").strip()
+            eps_up = eps.upper()
+            is_postponed = any(k in eps_up for k in ("POSTP", "CANC", "ABAND", "SUSP"))
+            is_finished = eps_up in ("FT", "AET", "AP")
+            is_live = (not is_finished) and (not is_postponed) and (eps_up not in ("", "NS", "TBA"))
+
+            minute_str = ""
+            if is_live:
+                minute_str = "بین دو نیمه" if eps_up == "HT" else eps.replace("'", "").strip()
+            elif not is_finished and not is_postponed:
+                esd = str(ev.get("Esd", "") or "")
+                if len(esd) >= 12:
+                    try:
+                        dt_tehran = TEHRAN_TZ.localize(_dt.strptime(esd[:12], "%Y%m%d%H%M"))
+                        minute_str = _format_tehran_kickoff(dt_tehran, now_dt)
+                    except Exception:
+                        minute_str = ""
+
+            h_img = t1.get("Img", "")
+            a_img = t2.get("Img", "")
+            h_logo = f"https://lsm-static-prod.livescore.com/medium/{h_img}" if h_img else ""
+            a_logo = f"https://lsm-static-prod.livescore.com/medium/{a_img}" if a_img else ""
+
+            register_and_check_match(
+                state, matches_mem, lg_key, mid, l_fa, is_iran,
+                to_persian_text(h_raw), to_persian_text(a_raw),
+                _safe_int(ev.get("Tr1"), 0), _safe_int(ev.get("Tr2"), 0),
+                h_logo, a_logo,
+                is_live, is_finished, minute_str,
+                allow_auto_alert=allow_auto_alert,
+                day_tag=day_tag, is_postponed=is_postponed,
+                bucket=bucket
+            )
+            added_count += 1
+
+    return added_count
+
+
+def _fetch_iran_sofascore_day(date_iso, state, matches_mem, bucket, now_dt, day_tag, allow_auto_alert):
+    from datetime import datetime as _dt, timezone as _tz
+    data = _football_get_json(f"https://api.sofascore.com/api/v1/sport/football/scheduled-events/{date_iso}", timeout=12)
+    if not isinstance(data, dict):
+        return 0
+    added = 0
+    for ev in (data.get("events") or []):
+        tourn = ev.get("tournament") or {}
+        cat_name = str((tourn.get("category") or {}).get("name", "") or "").lower()
+        t_name = str(tourn.get("name", "") or "").lower()
+        ut = tourn.get("uniqueTournament") or {}
+        ut_id = ut.get("id")
+        ut_name = str(ut.get("name", "") or "").lower()
+
+        if cat_name != "iran":
+            continue
+        if any(x in t_name or x in ut_name for x in ("azadegan", "u21", "u23", "women", "division", "league 2")):
+            continue
+        if ut_id == 955 or "persian gulf" in t_name or "pro league" in t_name or "persian gulf" in ut_name:
+            l_fa = "لیگ برتر ایران"
+        elif ut_id == 10474 or "hazfi" in t_name or "hazfi" in ut_name:
+            l_fa = "جام حذفی ایران"
+        else:
+            continue
+
+        home = ev.get("homeTeam") or {}
+        away = ev.get("awayTeam") or {}
+        h_raw, a_raw = str(home.get("name", "") or ""), str(away.get("name", "") or "")
+        if not h_raw or not a_raw:
+            continue
+
+        st = ev.get("status") or {}
+        st_type = str(st.get("type", "") or "").lower()
+        st_desc = str(st.get("description", "") or "").lower()
+        is_postponed = st_type in ("postponed", "canceled", "cancelled")
+        is_finished = st_type == "finished"
+        is_live = st_type == "inprogress"
+
+        minute_str = ""
+        if is_live:
+            if "halftime" in st_desc or "half" in st_desc:
+                minute_str = "بین دو نیمه"
+            else:
+                minute_str = str(st.get("description", "") or "").replace("'", "").strip()
+        elif not is_finished and not is_postponed:
+            ts = ev.get("startTimestamp")
+            if ts:
+                try:
+                    dt_tehran = _dt.fromtimestamp(int(ts), tz=_tz.utc).astimezone(TEHRAN_TZ)
+                    minute_str = _format_tehran_kickoff(dt_tehran, now_dt)
+                except Exception:
+                    pass
+
+        mid = f"ir_sf_{ev.get('id', '')}"
+        h_g = (ev.get("homeScore") or {}).get("current", 0)
+        a_g = (ev.get("awayScore") or {}).get("current", 0)
+        h_logo = f"https://api.sofascore.app/api/v1/team/{home.get('id')}/image" if home.get("id") else ""
+        a_logo = f"https://api.sofascore.app/api/v1/team/{away.get('id')}/image" if away.get("id") else ""
+
+        register_and_check_match(
+            state, matches_mem, "lg_ir", mid, l_fa, True,
+            to_persian_text(h_raw), to_persian_text(a_raw),
+            h_g, a_g, h_logo, a_logo,
+            is_live, is_finished, minute_str,
+            allow_auto_alert=allow_auto_alert,
+            day_tag=day_tag, is_postponed=is_postponed,
+            bucket=bucket
+        )
+        added += 1
+    return added
+
+
+def _fetch_iran_fotmob_day(date_compact, state, matches_mem, bucket, now_dt, day_tag, allow_auto_alert):
+    from datetime import datetime as _dt, timezone as _tz
+    data = _football_get_json(f"https://www.fotmob.com/api/matches?date={date_compact}&timezone=Asia%2FTehran", timeout=12)
+    if not isinstance(data, dict):
+        return 0
+    added = 0
+    for lg in (data.get("leagues") or []):
+        lid = lg.get("primaryId")
+        ccode = str(lg.get("ccode", "") or "").upper()
+        lname = str(lg.get("name", "") or "").lower()
+        if ccode != "IRN" and lid not in (290, 9090, 9384):
+            continue
+        if any(x in lname for x in ("azadegan", "women", "u21", "u23", "division 2", "league 2")):
+            continue
+        if lid in (290, 9090) or "persian" in lname or "pro league" in lname:
+            l_fa = "لیگ برتر ایران"
+        elif lid == 9384 or "hazfi" in lname:
+            l_fa = "جام حذفی ایران"
+        else:
+            continue
+
+        for m in (lg.get("matches") or []):
+            home = m.get("home") or {}
+            away = m.get("away") or {}
+            st = m.get("status") or {}
+            is_postponed = bool(st.get("cancelled", False))
+            is_finished = bool(st.get("finished", False)) and not is_postponed
+            is_live = bool(st.get("started", False)) and (not is_finished) and (not is_postponed)
+
+            h_score = home.get("score")
+            a_score = away.get("score")
+            if h_score is None or a_score is None:
+                sc_str = str(st.get("scoreStr", "") or "")
+                if "-" in sc_str:
+                    parts = sc_str.split("-", 1)
+                    h_score, a_score = parts[0], parts[1]
+
+            live_obj = st.get("liveTime")
+            minute_str = ""
+            if is_live and isinstance(live_obj, dict):
+                short_t = str(live_obj.get("short", "") or "").strip()
+                minute_str = "بین دو نیمه" if short_t.upper() == "HT" else short_t.replace("'", "")
+            elif not is_finished and not is_postponed:
+                utc_t = str(st.get("utcTime", "") or "").replace("Z", "+00:00")
+                if utc_t:
+                    try:
+                        dt_tehran = _dt.fromisoformat(utc_t).astimezone(TEHRAN_TZ)
+                        minute_str = _format_tehran_kickoff(dt_tehran, now_dt)
+                    except Exception:
+                        pass
+
+            mid = f"ir_fm_{m.get('id', '')}"
+            register_and_check_match(
+                state, matches_mem, "lg_ir", mid, l_fa, True,
+                to_persian_text(home.get("name", "")), to_persian_text(away.get("name", "")),
+                h_score, a_score,
+                f"https://images.fotmob.com/image_resources/logo/teamlogo/{home.get('id')}.png" if home.get("id") else "",
+                f"https://images.fotmob.com/image_resources/logo/teamlogo/{away.get('id')}.png" if away.get("id") else "",
+                is_live, is_finished, minute_str,
+                allow_auto_alert=allow_auto_alert,
+                day_tag=day_tag, is_postponed=is_postponed,
+                bucket=bucket
+            )
+            added += 1
+    return added
+
+
 def check_all_football_free(state):
+    from datetime import datetime as _dt
     matches_mem = state.setdefault("matches", {})
-    now_greg = jdatetime.datetime.now(TEHRAN_TZ).togregorian()
-    today_compact = now_greg.strftime("%Y%m%d")
+    now_dt = _dt.now(TEHRAN_TZ)
 
-    CACHE["live_match_ids"] = []
-    CACHE["live_lines"] = []
-    for lg_key, lg_title in LEAGUE_CATEGORIES:
-        CACHE["leagues"][lg_key] = {"title": lg_title, "lines": [], "match_ids": [], "has_live": False}
+    bucket = {
+        "live_match_ids": [],
+        "live_lines": [],
+        "leagues": {
+            lg_key: {"title": lg_title, "entries": [], "seen_ids": set(), "has_live": False, "fetched_ok": False}
+            for lg_key, lg_title in LEAGUE_CATEGORIES
+        }
+    }
 
-    for day_offset in [0, -1, 1, -2, 2]:
-        target_date = (now_greg + timedelta(days=day_offset)).strftime("%Y%m%d")
-        is_today = (day_offset == 0)
-        found_iran = False
-        try:
-            f_leagues = requests.get(f"https://www.fotmob.com/api/matches?date={target_date}", headers=HEADERS, timeout=10).json().get("leagues", [])
-            for lg in f_leagues:
-                lid = lg.get("primaryId")
-                if lid not in (9090, 9384):
-                    continue
-                found_iran = True
-                l_fa = "لیگ برتر ایران" if lid == 9090 else "جام حذفی ایران"
-                for m in lg.get("matches", []):
-                    mid = f"ir_{m['id']}"
-                    st = m.get("status", {})
-                    register_and_check_match(
-                        state, matches_mem, "lg_ir", mid, l_fa, True,
-                        to_persian_text(m["home"]["name"]), to_persian_text(m["away"]["name"]),
-                        int(m["home"].get("score", 0) or 0), int(m["away"].get("score", 0) or 0),
-                        f"https://images.fotmob.com/image_resources/logo/teamlogo/{m['home']['id']}.png",
-                        f"https://images.fotmob.com/image_resources/logo/teamlogo/{m['away']['id']}.png",
-                        st.get("started", False) and not st.get("finished", False),
-                        st.get("finished", False),
-                        st.get("liveTime", {}).get("short", "").replace("'", ""),
-                        allow_auto_alert=is_today
-                    )
-        except Exception:
-            pass
-        if found_iran:
-            break
+    today_compact = now_dt.strftime("%Y%m%d")
+    yest_compact = (now_dt - timedelta(days=1)).strftime("%Y%m%d")
+    today_iso = now_dt.strftime("%Y-%m-%d")
+    yest_iso = (now_dt - timedelta(days=1)).strftime("%Y-%m-%d")
+
+    ls_today_stages = _fetch_livescore_day_stages(today_compact)
+    ls_yest_stages = _fetch_livescore_day_stages(yest_compact)
+
+    ir_found = 0
+    if ls_today_stages:
+        ir_found += _parse_livescore_events_into_bucket(ls_today_stages, state, matches_mem, bucket, now_dt, "امروز", {"lg_ir"}, True)
+        bucket["leagues"]["lg_ir"]["fetched_ok"] = True
+    if ls_yest_stages:
+        ir_found += _parse_livescore_events_into_bucket(ls_yest_stages, state, matches_mem, bucket, now_dt, "دیروز", {"lg_ir"}, True)
+        bucket["leagues"]["lg_ir"]["fetched_ok"] = True
+
+    if ir_found == 0:
+        ir_found += _fetch_iran_sofascore_day(today_iso, state, matches_mem, bucket, now_dt, "امروز", True)
+        ir_found += _fetch_iran_sofascore_day(yest_iso, state, matches_mem, bucket, now_dt, "دیروز", True)
+        if ir_found > 0:
+            bucket["leagues"]["lg_ir"]["fetched_ok"] = True
+
+    if ir_found == 0:
+        ir_found += _fetch_iran_fotmob_day(today_compact, state, matches_mem, bucket, now_dt, "امروز", True)
+        ir_found += _fetch_iran_fotmob_day(yest_compact, state, matches_mem, bucket, now_dt, "دیروز", True)
+        if ir_found > 0:
+            bucket["leagues"]["lg_ir"]["fetched_ok"] = True
+
+    if ir_found == 0:
+        for offset in (1, -2, 2, -3):
+            dt_cand = now_dt + timedelta(days=offset)
+            c_comp = dt_cand.strftime("%Y%m%d")
+            c_iso = dt_cand.strftime("%Y-%m-%d")
+            c_tag = "دیروز" if offset < 0 else "آینده"
+            stgs = _fetch_livescore_day_stages(c_comp)
+            cnt = _parse_livescore_events_into_bucket(stgs, state, matches_mem, bucket, now_dt, c_tag, {"lg_ir"}, False) if stgs else 0
+            if cnt == 0:
+                cnt = _fetch_iran_sofascore_day(c_iso, state, matches_mem, bucket, now_dt, c_tag, False)
+            if cnt == 0:
+                cnt = _fetch_iran_fotmob_day(c_comp, state, matches_mem, bucket, now_dt, c_tag, False)
+            if cnt > 0:
+                bucket["leagues"]["lg_ir"]["fetched_ok"] = True
+                break
 
     espn_configs = [
         ("lg_eng", "eng.1", "لیگ برتر انگلیس"),
@@ -1583,40 +1928,139 @@ def check_all_football_free(state):
         ("lg_ger", "ger.1", "بوندسلیگا آلمان"),
         ("lg_ucl", "uefa.champions", "لیگ قهرمانان اروپا")
     ]
-    for lg_key, code, l_fa in espn_configs:
-        try:
-            events = requests.get(f"https://site.api.espn.com/apis/site/v2/sports/soccer/{code}/scoreboard?dates={today_compact}", headers=HEADERS, timeout=10).json().get("events", [])
-            is_today_batch = True
-            if not events:
-                events = requests.get(f"https://site.api.espn.com/apis/site/v2/sports/soccer/{code}/scoreboard", headers=HEADERS, timeout=10).json().get("events", [])
-                is_today_batch = False
 
-            for ev in events[:10]:
-                mid = f"eu_{ev['id']}"
-                comp = ev["competitions"][0]
-                state_type = ev["status"]["type"]["state"]
-                home = next(c for c in comp["competitors"] if c["homeAway"] == "home")
-                away = next(c for c in comp["competitors"] if c["homeAway"] == "away")
+    for lg_key, code, l_fa in espn_configs:
+        eu_events = []
+        seen_ev_ids = set()
+        espn_ok = False
+
+        for d_param, is_recent in [(today_compact, True), (yest_compact, True)]:
+            d_json = _football_get_json(f"https://site.api.espn.com/apis/site/v2/sports/soccer/{code}/scoreboard?dates={d_param}", timeout=10)
+            if isinstance(d_json, dict) and "events" in d_json:
+                espn_ok = True
+                for ev in (d_json.get("events") or []):
+                    ev_id = str(ev.get("id", ""))
+                    if ev_id and ev_id not in seen_ev_ids:
+                        seen_ev_ids.add(ev_id)
+                        eu_events.append((ev, is_recent))
+
+        if len(eu_events) == 0:
+            d_def = _football_get_json(f"https://site.api.espn.com/apis/site/v2/sports/soccer/{code}/scoreboard", timeout=10)
+            if isinstance(d_def, dict) and "events" in d_def:
+                espn_ok = True
+                for ev in (d_def.get("events") or []):
+                    ev_id = str(ev.get("id", ""))
+                    if ev_id and ev_id not in seen_ev_ids:
+                        seen_ev_ids.add(ev_id)
+                        eu_events.append((ev, False))
+
+        if espn_ok:
+            bucket["leagues"][lg_key]["fetched_ok"] = True
+
+        for ev, is_recent in eu_events[:18]:
+            try:
+                comps = ev.get("competitions") or []
+                if not comps:
+                    continue
+                comp = comps[0]
+                competitors = comp.get("competitors") or []
+                home = next((c for c in competitors if c.get("homeAway") == "home"), None)
+                away = next((c for c in competitors if c.get("homeAway") == "away"), None)
+                if not home or not away:
+                    continue
+
+                st_type_obj = (ev.get("status") or {}).get("type") or {}
+                state_type = str(st_type_obj.get("state", "") or "").lower()
+                st_name = str(st_type_obj.get("name", "") or "").upper()
+                short_det = str(st_type_obj.get("shortDetail", "") or "").strip()
+
+                is_postponed = any(x in st_name for x in ("POSTPONED", "CANCELED", "CANCELLED", "ABANDONED"))
+                is_live = (state_type == "in") and not is_postponed
+                is_finished = (state_type == "post") and not is_postponed
+
+                dt_tehran = None
+                raw_date = str(ev.get("date", "") or "").replace("Z", "+00:00")
+                if raw_date:
+                    try:
+                        dt_tehran = _dt.fromisoformat(raw_date).astimezone(TEHRAN_TZ)
+                    except Exception:
+                        dt_tehran = None
+
+                day_tag = ""
+                if dt_tehran and dt_tehran.date() < now_dt.date():
+                    day_tag = "دیروز"
+
+                minute_str = ""
+                if is_live:
+                    if "HT" in short_det.upper() or "HALF" in short_det.upper():
+                        minute_str = "بین دو نیمه"
+                    else:
+                        minute_str = short_det.replace("'", "").strip()
+                elif not is_finished and not is_postponed:
+                    minute_str = _format_tehran_kickoff(dt_tehran, now_dt) if dt_tehran else short_det
 
                 scorers_list = []
-                for det in comp.get("details", []):
+                for det in (comp.get("details") or []):
                     if det.get("scoringPlay"):
-                        clock = det.get("clock", {}).get("displayValue", "").replace("'", "")
-                        athletes = det.get("athletesInvolved", [])
-                        if athletes:
-                            scorers_list.append(f"{to_persian_text(athletes[0].get('displayName', ''))} ({to_fa_digits(clock)})")
+                        clock = str((det.get("clock") or {}).get("displayValue", "") or "").replace("'", "")
+                        athletes = det.get("athletesInvolved") or []
+                        if athletes and athletes[0].get("displayName"):
+                            scorers_list.append(f"{to_persian_text(athletes[0]['displayName'])} ({to_fa_digits(clock)})")
+
+                real_stats = {}
+                for c_obj, pref in ((home, "h"), (away, "a")):
+                    for st_item in (c_obj.get("statistics") or []):
+                        sname = str(st_item.get("name", "") or "")
+                        sval = st_item.get("displayValue")
+                        if sname == "possessionPct" and pref == "h":
+                            p_val = _safe_int(sval, 0)
+                            if 10 <= p_val <= 90:
+                                real_stats["h_poss"] = p_val
+                        elif sname == "shotsOnTarget":
+                            real_stats[f"{pref}_shots"] = _safe_int(sval, 0)
+
+                h_team = home.get("team") or {}
+                a_team = away.get("team") or {}
+                mid = f"eu_{ev.get('id', '')}"
 
                 register_and_check_match(
                     state, matches_mem, lg_key, mid, l_fa, False,
-                    to_persian_text(home["team"]["displayName"]), to_persian_text(away["team"]["displayName"]),
-                    int(home.get("score", 0) or 0), int(away.get("score", 0) or 0),
-                    home["team"].get("logo", ""), away["team"].get("logo", ""),
-                    state_type == "in", state_type == "post",
-                    ev["status"]["type"].get("shortDetail", ""),
-                    scorers_list=scorers_list, allow_auto_alert=is_today_batch
+                    to_persian_text(h_team.get("displayName", "")),
+                    to_persian_text(a_team.get("displayName", "")),
+                    home.get("score", 0), away.get("score", 0),
+                    h_team.get("logo", ""), a_team.get("logo", ""),
+                    is_live, is_finished, minute_str,
+                    scorers_list=scorers_list,
+                    allow_auto_alert=is_recent,
+                    day_tag=day_tag, is_postponed=is_postponed,
+                    real_stats=real_stats, bucket=bucket
                 )
-        except Exception:
-            pass
+            except Exception as e:
+                print(f"[Football] ESPN parse error ({code}): {e}")
+
+        if len(bucket["leagues"][lg_key]["entries"]) == 0:
+            fb_cnt = 0
+            if ls_today_stages:
+                fb_cnt += _parse_livescore_events_into_bucket(ls_today_stages, state, matches_mem, bucket, now_dt, "امروز", {lg_key}, True)
+            if ls_yest_stages:
+                fb_cnt += _parse_livescore_events_into_bucket(ls_yest_stages, state, matches_mem, bucket, now_dt, "دیروز", {lg_key}, True)
+            if fb_cnt > 0:
+                bucket["leagues"][lg_key]["fetched_ok"] = True
+
+    any_fetched = any(v["fetched_ok"] for v in bucket["leagues"].values())
+    if any_fetched:
+        CACHE["live_match_ids"] = bucket["live_match_ids"]
+        CACHE["live_lines"] = bucket["live_lines"]
+
+    for lg_key, b_info in bucket["leagues"].items():
+        if b_info["entries"] or (b_info["fetched_ok"] and not CACHE["leagues"][lg_key]["match_ids"]):
+            b_info["entries"].sort(key=lambda x: x[0])
+            CACHE["leagues"][lg_key] = {
+                "title": b_info["title"],
+                "lines": [x[1] for x in b_info["entries"]],
+                "match_ids": [x[2] for x in b_info["entries"]],
+                "has_live": b_info["has_live"]
+            }
 
 # =====================================================================
 # 8. Menus & Reply-Edit Handlers
@@ -1646,6 +2090,7 @@ def build_league_selector_markup():
         count_txt = f" ({to_fa_digits(count)} بازی)" if count > 0 else ""
         buttons.append([{"text": f"{lg_title}{live_badge}{count_txt}", "callback_data": f"showlg_{lg_key}"}])
     buttons.append([{"text": "📊 ساخت پوستر تجمیعی ۵ بازی مهم روز", "callback_data": "mk_multi_today"}])
+    buttons.append([{"text": "🔄 بروزرسانی لحظه‌ای لیست بازی‌ها", "callback_data": "refresh_all_leagues"}])
     return json.dumps({"inline_keyboard": buttons})
 
 
@@ -1695,7 +2140,7 @@ def send_specific_league_matches(chat_id, lg_key, message_id=None):
     else:
         text = f"🏆 {title}\n\n⚽ در حال حاضر بازی فعالی برای این لیگ ثبت نشده است."
     buttons = []
-    for mid in m_ids[:12]:
+    for mid in m_ids[:16]:
         m = CACHE["matches_by_id"].get(mid)
         if m:
             score_lbl = f"{m['status_emoji']} {m['h_name']} {to_fa_digits(m['h_g'])}-{to_fa_digits(m['a_g'])} {m['a_name']}"
@@ -2566,6 +3011,11 @@ def handle_callback_query(chat_id, message_id, cb_id, data, state):
     if data == "show_live_now":
         answer_callback(cb_id, "🔴 دریافت بازی های زنده...")
         send_live_now_matches(chat_id, message_id=message_id)
+
+    elif data == "refresh_all_leagues":
+        answer_callback(cb_id, "🔄 در حال بروزرسانی همه لیگ‌ها...")
+        check_all_football_free(state)
+        send_league_selection_question(chat_id, message_id=message_id)
 
     elif data.startswith("showlg_"):
         answer_callback(cb_id, "⚽ دریافت لیست بازی ها...")
