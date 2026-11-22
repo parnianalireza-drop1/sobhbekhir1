@@ -28,6 +28,8 @@ DEFAULT_IG_PAGE = os.environ.get("IG_TARGET_PAGE", "shirazlastnews").strip()
 DEFAULT_IG_SESSION = os.environ.get("IG_SESSIONID", "").strip()
 DEFAULT_FOOTER = os.environ.get("FOOTER_TEXT", "آخرین خبرهای شیراز").strip()
 DEFAULT_REEL_BADGE = os.environ.get("REEL_BADGE", "خبر فوری").strip()
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "").strip()
+DEFAULT_REEL_BOTTOM = os.environ.get("REEL_BOTTOM_TEXT", "برای دریافت آخرین خبرهای ایران و استان فارس با ما همراه باشید | @shirazlastnews").strip()
 
 ACTIVE_START_HOUR = 7
 ACTIVE_END_HOUR = 21
@@ -256,7 +258,7 @@ def to_fa_digits(val):
 
 
 def strip_emojis_for_image(text):
-    return re.sub(r'[^\u0600-\u06FF0-9۰-۹a-zA-Z\s\|\-\:\.\،\/\(\)\%\+\!\؟\?]', '', str(text)).strip()
+    return re.sub(r'[^\u0600-\u06FF0-9۰-۹a-zA-Z\s\|\-\:\.\،\/\(\)\%\+\!\؟\?\@\_]', '', str(text)).strip()
 
 
 def clamp01(x):
@@ -753,15 +755,37 @@ def ensure_yt_dlp():
 
 def download_viral_video_from_url(url, dest_mp4_path):
     ensure_yt_dlp()
-    extracted_title = ""
+    extracted_caption = ""
+    extracted_source = ""
+
     try:
-        res_info = subprocess.run([sys.executable, "-m", "yt_dlp", "--no-playlist", "--no-warnings", "--print", "%(title)s", url], capture_output=True, text=True, timeout=18)
+        res_info = subprocess.run(
+            [sys.executable, "-m", "yt_dlp", "--no-playlist", "--no-warnings", "--dump-single-json", url],
+            capture_output=True, text=True, timeout=22
+        )
         if res_info.returncode == 0 and res_info.stdout.strip():
-            raw_t = res_info.stdout.strip().splitlines()[0]
-            if raw_t and raw_t != "NA":
-                extracted_title = raw_t[:110]
+            info = json.loads(res_info.stdout.strip().splitlines()[-1])
+            desc = (info.get("description") or "").strip()
+            title = (info.get("title") or "").strip()
+            uploader = (info.get("uploader_id") or info.get("uploader") or info.get("channel") or "").strip()
+            extracted_caption = desc if len(desc) >= len(title) else title
+            if uploader and uploader != "NA":
+                extracted_source = uploader
     except Exception:
         pass
+
+    ig_sc_match = re.search(r'instagram\.com/(?:reel|p|tv)/([A-Za-z0-9_-]{8,15})', url)
+    if ig_sc_match and len(extracted_caption) < 35:
+        try:
+            det = fetch_ig_single_shortcode_details(ig_sc_match.group(1), is_reel_hint=True)
+            if det and det.get("caption"):
+                extracted_caption = det["caption"].strip()
+        except Exception:
+            pass
+
+    full_extracted = extracted_caption
+    if extracted_source and extracted_source.lower() not in full_extracted.lower():
+        full_extracted = f"{full_extracted}\nمنبع: {extracted_source}".strip()
 
     try:
         subprocess.run([
@@ -770,7 +794,7 @@ def download_viral_video_from_url(url, dest_mp4_path):
             "--merge-output-format", "mp4", "--max-filesize", "48M", "-o", dest_mp4_path, url
         ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=75, check=False)
         if os.path.exists(dest_mp4_path) and os.path.getsize(dest_mp4_path) > 10000:
-            return True, extracted_title
+            return True, full_extracted
     except Exception:
         pass
 
@@ -778,15 +802,15 @@ def download_viral_video_from_url(url, dest_mp4_path):
         try:
             api_u = re.sub(r'https?://(www\.)?(twitter|x)\.com/', 'https://api.vxtwitter.com/', url)
             r = requests.get(api_u, headers=HEADERS, timeout=12).json()
-            if not extracted_title and r.get("text"):
-                extracted_title = r["text"].splitlines()[0][:100]
+            if not full_extracted and r.get("text"):
+                full_extracted = r["text"].strip()[:1000]
             for media in r.get("media_extended", []):
                 if media.get("type") in ("video", "gif") and media.get("url"):
                     v_data = requests.get(media["url"], headers=HEADERS, timeout=35).content
                     if len(v_data) > 10000:
                         with open(dest_mp4_path, "wb") as f:
                             f.write(v_data)
-                        return True, extracted_title
+                        return True, full_extracted
         except Exception:
             pass
 
@@ -798,11 +822,11 @@ def download_viral_video_from_url(url, dest_mp4_path):
                     if chunk:
                         f.write(chunk)
             if os.path.exists(dest_mp4_path) and os.path.getsize(dest_mp4_path) > 10000:
-                return True, extracted_title
+                return True, full_extracted
     except Exception:
         pass
 
-    return False, extracted_title
+    return False, full_extracted
 
 
 def build_reel_news_frame_overlay(badge_text, title_text, bottom_text):
@@ -838,12 +862,18 @@ def build_reel_news_frame_overlay(badge_text, title_text, bottom_text):
 
     clean_bottom = (bottom_text or "").strip()
     if clean_bottom:
-        bot_lines = wrap_persian_lines(clean_bottom, max_chars_per_line=36, max_lines=2)
-        if len(bot_lines) == 1:
-            draw_luxury_text(overlay, 540, 1525, bot_lines[0], 48, style="flat_white", use_display_font=False, max_width=880)
+        if "|" in clean_bottom:
+            bot_lines = [p.strip() for p in clean_bottom.split("|", 1) if p.strip()]
+        elif "\n" in clean_bottom:
+            bot_lines = [p.strip() for p in clean_bottom.split("\n", 1) if p.strip()]
         else:
-            draw_luxury_text(overlay, 540, 1490, bot_lines[0], 42, style="flat_white", use_display_font=False, max_width=880)
-            draw_luxury_text(overlay, 540, 1560, bot_lines[1], 42, style="flat_white", use_display_font=False, max_width=880)
+            bot_lines = wrap_persian_lines(clean_bottom, max_chars_per_line=44, max_lines=2)
+
+        if len(bot_lines) == 1:
+            draw_luxury_text(overlay, 540, 1525, bot_lines[0], 44, style="flat_white", use_display_font=False, max_width=900)
+        else:
+            draw_luxury_text(overlay, 540, 1488, bot_lines[0], 36, style="flat_white", use_display_font=False, max_width=900)
+            draw_luxury_text(overlay, 540, 1560, bot_lines[1], 40, style="gold", use_display_font=False, max_width=880)
 
     return overlay
 
@@ -1618,13 +1648,23 @@ def register_and_check_match(
 
     if is_finished and not prev["ft"]:
         if target_chat:
-            img = build_match_image(m_obj, footer_text=footer)
-            caption = f"🏁 پایان بازی ({league_fa})\n⚽ {h_name} {to_fa_digits(h_g)} - {to_fa_digits(a_g)} {a_name}"
-            kb = [[{"text": "🎬 دریافت ویدیو موشن گرافیک (MP4)", "callback_data": f"mkvid_match_{match_id}"}]]
-            meta = {"type": "match", "mid": match_id, "overrides": {}, "caption": caption, "kb": kb}
-            edited = edit_telegram_photo_in_place(target_chat, prev["msg_id"], img, caption=caption, inline_kb=kb, post_meta=meta) if prev.get("msg_id") else False
-            if not edited:
-                prev["msg_id"] = send_telegram_photo(target_chat, img, caption=caption, inline_kb=kb, post_meta=meta)
+            fin_text = (
+                f"🏁 بازی تمام شد ({league_fa})\n"
+                f"⚽ نتیجه نهایی: {h_name} {to_fa_digits(h_g)} - {to_fa_digits(a_g)} {a_name}"
+            )
+            kb = [[{"text": "📸 ساخت پوستر این بازی", "callback_data": f"mkimg_{match_id}"}]]
+            try:
+                requests.post(
+                    f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage",
+                    data={
+                        "chat_id": target_chat,
+                        "text": fin_text,
+                        "reply_markup": json.dumps({"inline_keyboard": kb})
+                    },
+                    timeout=10
+                )
+            except Exception as e:
+                print("Send finish text error:", e)
         prev["ft"] = True
         prev["h"], prev["a"] = h_g, a_g
 
@@ -2269,6 +2309,161 @@ def handle_reply_instant_edit(chat_id, reply_msg_id, user_text, state):
 # =====================================================================
 # 8-B. Reels Framer Input Parser & Processor (3-Box Custom Layout)
 # =====================================================================
+GEMINI_ACTIVE_MODEL = {"name": None}
+
+NEWS_EDITOR_SYSTEM_PROMPT = """تو سردبیر ارشد یک رسانه خبری معتبر و رسمی در اینستاگرام با آیدی @shirazlastnews هستی.
+متن خبری که در انتها به تو می‌دهم را بخوان و خروجی را فقط و فقط به صورت یک آبجکت JSON معتبر با ۳ کلید دقیق زیر برگردان:
+{"badge": "...", "title": "...", "caption": "..."}
+
+قوانین دقیق تولید فیلدها:
+ابتدا در ذهن خود دو مورد را درباره خبر تشخیص بده:
+- دسته‌بندی دقیق موضوع (یکی از ۶ دسته): «شیراز و فارس»، «نظامی و سیاسی»، «اقتصادی و معیشتی»، «ورزشی»، «حوادث» یا «عمومی».
+- محلی یا سراسری بودن خبر: اگر خبر واقعاً مربوط به شهر شیراز یا شهرهای استان فارس است، «محلی» و در غیر این صورت «سراسری» محسوب می‌شود (توجه‌: عباراتی مثل «خلیج فارس»، «خبرگزاری فارس»، «خبرگزاری مهر» یا «زبان فارسی» نشانه محلی بودن نیستند).
+
+1) فیلد "badge" (متن کوتاه کادر قرمز بالای ویدیو — دقیقاً یکی از این ۵ عبارت بدون ایموجی):
+- اخبار فوری، نظامی/امنیتی یا حوادث مهم: فوری
+- اخبار اقتصادی، معیشتی یا تصمیمات مهم: مهم
+- اخبار شهری شیراز و استان فارس: خبر شیراز
+- اخبار ورزشی: ورزشی
+- سایر اخبار اجتماعی و عمومی: گزارش
+
+2) فیلد "title" (تیتر کادر مشکی وسط ویدیو):
+- حداکثر ۱۲ کلمه، دقیق، شفاف، بدون تحریف اعداد/اسامی/واقعیت، بدون ایموجی و بدون برچسب.
+- خط قرمز: هرگز از عبارات کلیک‌بیت، زرد یا تکراری مثل «جزئیات در کپشن»، «تکان‌دهنده»، «تا آخر ببینید» یا «اما واقعیت ماجرا...» استفاده نکن.
+
+3) فیلد "caption" (فقط و فقط متن نهایی و آماده انتشار کپشن اینستاگرام، بدون هیچ مقدمه، توضیح اضافه یا علامت ستاره و مارک‌داون مثل **):
+دقیقاً با این ساختار ۶ بخشی:
+
+۱. خط اول (تیتر خبری):
+- دقیقاً به شکل «⭕ [مقدار badge] | [مقدار title]» باشد.
+
+۲. بدنه خبر (با یک خط فاصله زیر تیتر):
+- خلاصه دقیق، روان و استاندارد خبر در ۲ تا ۳ خط کوتاه با لحن رسمی خبرگزاری‌ها.
+- از گذاشتن ایموجی‌های تکراری (به‌ویژه ✅) در ابتدای خطوط خودداری کن.
+
+۳. خط تعاملی کامنت‌گیر (با یک خط فاصله زیر بدنه):
+- با ایموجی 💬 شروع شود و شامل فقط یک سؤال کوتاه و دقیقاً مرتبط با جزئیات همین خبر باشد.
+- سؤال باید طوری طراحی شود که مخاطب در ۲ ثانیه و فقط با نوشتن عدد یا یک کلمه پاسخ دهد؛ مثل: «(۱: بله | ۲: خیر)» یا «(۱: ... | ۲: ...)».
+- خط قرمز: هرگز برای اخبار نظامی، سیاسی، اقتصادی یا ورزشی سؤال «مقصر کیه؟» نپرس (این مدل سؤال فقط مخصوص دسته حوادث است).
+
+۴. دعوت به فالو (با یک خط فاصله زیر سؤال — بدون تکرار آیدی):
+- اگر خبر «محلی (شیراز و فارس)» بود، دقیقاً این دو خط را بگذار:
+🔔 پوشش لحظه‌ای اخبار شیراز و استان فارس در استوری‌ها و ریلزها
+📲 برای پیگیری ادامه خبر فالو کنید: @shirazlastnews
+- اگر خبر «سراسری یا بین‌المللی» بود، دقیقاً این دو خط را بگذار:
+🔥 فوری‌ترین ویدیوهای خبری ایران در ریلزها + پوشش لحظه‌ای شیراز در استوری‌ها
+📲 برای پیگیری ادامه خبر فالو کنید: @shirazlastnews
+
+۵. منبع خبر (با یک خط فاصله زیر دعوت به فالو):
+- دقیقاً به شکل: «📌 منبع: [نام منبع]» (اگر منبعی در متن ذکر نشده بود، این خط را کاملاً حذف کن).
+
+۶. هشتگ‌ها (دقیقاً در خط زیر منبع، یا با یک خط فاصله زیر دعوت به فالو اگر منبع حذف شده باشد):
+- دقیقاً ۵ هشتگ فارسی مرتبط با موضوع همین خبر در یک خط با فاصله.
+- اگر خبر محلی است، ۲ هشتگ اول حتماً #شیراز و #استان_فارس باشند و ۳ هشتگ بعدی تخصصی موضوع خبر.
+- خط قرمز: از هشتگ‌های اسپم مثل #اکسپلور #وایرال #explore #viral هرگز استفاده نکن. هشتگ #حوادث را فقط و فقط زمانی به کار ببر که دسته خبر «حوادث» باشد."""
+
+
+def _get_modern_gemini_candidates():
+    candidates = []
+    if GEMINI_ACTIVE_MODEL.get("name"):
+        candidates.append(GEMINI_ACTIVE_MODEL["name"])
+
+    try:
+        r = requests.get(
+            f"https://generativelanguage.googleapis.com/v1beta/models?key={GEMINI_API_KEY}",
+            timeout=10
+        )
+        if r.status_code == 200:
+            discovered = []
+            for m in r.json().get("models", []):
+                methods = m.get("supportedGenerationMethods", [])
+                if "generateContent" not in methods:
+                    continue
+                name = m.get("name", "").replace("models/", "").strip()
+                low = name.lower()
+                if "gemini" not in low or "flash" not in low:
+                    continue
+                if any(bad in low for bad in ("1.0", "1.5", "tts", "image", "audio", "vision", "embed", "thinking", "exp-0827")):
+                    continue
+                ver_m = re.search(r'gemini-(\d+(?:\.\d+)?)', low)
+                ver_num = float(ver_m.group(1)) if ver_m else 0.0
+                if ver_num < 2.5:
+                    continue
+                is_lite = 1 if "lite" in low else 0
+                is_preview = 1 if ("preview" in low or "exp" in low) else 0
+                discovered.append((-ver_num, is_lite, is_preview, name))
+            discovered.sort()
+            for _, _, _, m_name in discovered[:6]:
+                if m_name not in candidates:
+                    candidates.append(m_name)
+    except Exception as e:
+        print("Gemini model discovery error:", e)
+
+    for fallback in ("gemini-3.6-flash", "gemini-3.0-flash", "gemini-2.5-flash", "gemini-2.5-flash-lite"):
+        if fallback not in candidates:
+            candidates.append(fallback)
+    return candidates
+
+
+def generate_news_reel_editorial(raw_news_text):
+    clean_input = (raw_news_text or "").strip()
+    if not GEMINI_API_KEY or len(clean_input) < 8:
+        return None, None, None
+
+    payload = {
+        "systemInstruction": {"parts": [{"text": NEWS_EDITOR_SYSTEM_PROMPT}]},
+        "contents": [{"role": "user", "parts": [{"text": f"متن خبر و منبع:\n{clean_input[:3500]}"}]}],
+        "generationConfig": {
+            "temperature": 0.35,
+            "responseMimeType": "application/json"
+        }
+    }
+
+    for model_name in _get_modern_gemini_candidates():
+        try:
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={GEMINI_API_KEY}"
+            r = requests.post(url, json=payload, timeout=30)
+            if r.status_code in (400, 404):
+                continue
+            if r.status_code != 200:
+                print(f"[Gemini] {model_name} HTTP {r.status_code}: {r.text[:160]}")
+                continue
+
+            data = r.json()
+            cands = data.get("candidates") or []
+            if not cands:
+                continue
+            raw_out = "".join(p.get("text", "") for p in cands[0].get("content", {}).get("parts", [])).strip()
+            raw_out = re.sub(r'^```(?:json)?\s*|\s*```$', '', raw_out, flags=re.DOTALL).strip()
+
+            parsed = json.loads(raw_out)
+            badge = str(parsed.get("badge", "") or "").replace("⭕", "").strip()
+            title = str(parsed.get("title", "") or "").replace("**", "").strip()
+            caption = str(parsed.get("caption", "") or "").replace("**", "").strip()
+
+            if title and caption:
+                GEMINI_ACTIVE_MODEL["name"] = model_name
+                print(f"[Gemini] Editorial generated via {model_name}")
+                return (badge or DEFAULT_REEL_BADGE), title, caption
+        except Exception as e:
+            print(f"[Gemini] {model_name} error:", e)
+
+    return None, None, None
+
+
+def send_telegram_plain_text(chat_id, text):
+    if not chat_id or not text:
+        return
+    try:
+        requests.post(
+            f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage",
+            data={"chat_id": chat_id, "text": text, "disable_web_page_preview": True},
+            timeout=15
+        )
+    except Exception as e:
+        print("Send plain text error:", e)
+
+
 def parse_viral_input_text(text):
     cleaned = re.sub(r'^(ریلز\s*ساز|قاب\s*ساز|قاب|ویدیو|وایرال)\s*[\:\-]?\s*', '', (text or "").strip())
     url_match = re.search(r'(https?://[^\s\|]+)', cleaned)
@@ -2277,6 +2472,21 @@ def parse_viral_input_text(text):
     url = url_match.group(1).strip()
     remainder = (cleaned[:url_match.start()] + " " + cleaned[url_match.end():]).strip().lstrip("|:-").strip()
     return url, remainder
+
+
+def is_manual_three_box_syntax(raw_text):
+    txt = (raw_text or "").strip()
+    if not txt:
+        return False
+    if "|" in txt:
+        return True
+    for line in txt.split("\n"):
+        ln = line.strip()
+        if ":" in ln:
+            k = ln.split(":", 1)[0].strip()
+            if k in ("بالا", "قرمز", "برچسب", "وسط", "تیتر", "عنوان", "پایین", "امضا", "فوتر"):
+                return True
+    return False
 
 
 def parse_three_box_texts(raw_text, default_badge, default_bottom, fallback_title=""):
@@ -2324,23 +2534,39 @@ def parse_three_box_texts(raw_text, default_badge, default_bottom, fallback_titl
 
 def process_viral_video_request(chat_id, url, raw_text, state, badge_override=None, title_override=None, bottom_override=None, tg_file_id=None):
     default_badge = state.get("reel_badge", DEFAULT_REEL_BADGE)
-    default_bottom = state.get("footer_text", DEFAULT_FOOTER)
-    send_menu_keyboard(chat_id, "⏳ در حال دریافت ویدیو و قرار دادن متن‌ها در قاب اختصاصی ریلز...")
+    default_bottom = DEFAULT_REEL_BOTTOM
+    send_menu_keyboard(chat_id, "⏳ در حال دریافت ویدیو، تنظیم سردبیری کپشن و ساخت قاب اختصاصی ریلز...")
 
     with tempfile.TemporaryDirectory() as tmpdir:
         raw_mp4 = os.path.join(tmpdir, "raw_input.mp4")
-        ok, extracted_title = False, ""
+        ok, extracted_text = False, ""
         if tg_file_id:
             ok = download_telegram_file(tg_file_id, raw_mp4)
         elif url:
-            ok, extracted_title = download_viral_video_from_url(url, raw_mp4)
+            ok, extracted_text = download_viral_video_from_url(url, raw_mp4)
 
         if not ok:
-            send_menu_keyboard(chat_id, "⚠ دانلود مستقیم از این لینک امکان‌پذیر نشد.\n💡 خود فایل ویدیو را مستقیماً برای ربات بفرستید و متن کادرها را در کپشن آن بنویسید.")
+            send_menu_keyboard(chat_id, "⚠ دانلود مستقیم از این لینک امکان‌پذیر نشد.\n💡 خود فایل ویدیو را مستقیماً همراه با متن خبر در کپشن برای ربات بفرستید.")
             return
 
-        fallback_fa = to_persian_text(extracted_title) if extracted_title else "ویدیوی ویژه روز"
-        badge_txt, title_txt, bottom_txt = parse_three_box_texts(raw_text, default_badge, default_bottom, fallback_title=fallback_fa)
+        manual_edit = (badge_override is not None) or (title_override is not None) or (bottom_override is not None) or is_manual_three_box_syntax(raw_text)
+        ai_caption = ""
+
+        if not manual_edit:
+            news_parts = [p for p in ((raw_text or "").strip(), (extracted_text or "").strip()) if p]
+            combined_news = "\n\n".join(news_parts)
+            ai_badge, ai_title, ai_cap = generate_news_reel_editorial(combined_news)
+            if ai_title and ai_cap:
+                badge_txt, title_txt, bottom_txt = ai_badge, ai_title, default_bottom
+                ai_caption = ai_cap
+            else:
+                first_line = (combined_news.splitlines()[0][:100] if combined_news else "")
+                fallback_fa = to_persian_text(first_line) if first_line else "ویدیوی ویژه روز"
+                badge_txt, title_txt, bottom_txt = default_badge, fallback_fa, default_bottom
+        else:
+            first_line = (extracted_text.splitlines()[0][:100] if extracted_text else "")
+            fallback_fa = to_persian_text(first_line) if first_line else "ویدیوی ویژه روز"
+            badge_txt, title_txt, bottom_txt = parse_three_box_texts(raw_text, default_badge, default_bottom, fallback_title=fallback_fa)
 
         if badge_override is not None:
             badge_txt = badge_override
@@ -2351,19 +2577,21 @@ def process_viral_video_request(chat_id, url, raw_text, state, badge_override=No
 
         mp4_bytes = render_framed_viral_video_mp4(raw_mp4, badge_txt, title_txt, bottom_txt)
         if mp4_bytes:
-            caption = (
+            vid_caption = (
                 "🎬 ریلز آماده انتشار شد!\n"
                 f"🔴 کادر بالا: {badge_txt}\n"
                 f"⬛ کادر وسط: {title_txt}\n"
                 f"⬛ کادر پایین: {bottom_txt}\n\n"
-                "💡 برای ویرایش هر کادر روی همین ویدیو Reply بزنید (مثال: وسط: تیتر جدید)."
+                "💡 برای ویرایش دستی هر کادر روی همین ویدیو Reply بزنید (مثال: وسط: تیتر جدید)."
             )
             meta = {
                 "type": "viral", "url": url, "file_id": tg_file_id,
                 "badge": badge_txt, "title": title_txt, "footer": bottom_txt,
                 "overrides": {"badge": badge_txt, "title": title_txt, "footer": bottom_txt}
             }
-            send_telegram_video(chat_id, mp4_bytes, caption=caption, post_meta=meta)
+            send_telegram_video(chat_id, mp4_bytes, caption=vid_caption, post_meta=meta)
+            if ai_caption:
+                send_telegram_plain_text(chat_id, ai_caption)
         else:
             send_menu_keyboard(chat_id, "⚠ خطا در پردازش ویدیو با FFmpeg.")
 
