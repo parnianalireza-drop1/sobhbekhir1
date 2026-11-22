@@ -1,7 +1,7 @@
 {
   "last_morning_date": "2026-11-22",
   "last_wake_notice_date": "2026-11-22",
-  "last_sleep_notice_date": "2026-11-21",
+  "last_sleep_notice_date": "2026-11-22",
   "owner_chat_id": "30956754",
   "footer_text": "آخرین خبرهای شیراز",
   "reel_badge": "خبر فوری",
@@ -161,9 +161,9 @@
       "msg_id": null
     },
     "eu_401879234": {
-      "h": 0,
+      "h": 2,
       "a": 0,
-      "ft": false,
+      "ft": true,
       "msg_id": null
     },
     "eu_401878755": {
@@ -173,15 +173,15 @@
       "msg_id": null
     },
     "eu_401882804": {
-      "h": 0,
-      "a": 0,
-      "ft": false,
+      "h": 3,
+      "a": 2,
+      "ft": true,
       "msg_id": null
     },
     "eu_401882800": {
-      "h": 0,
-      "a": 0,
-      "ft": false,
+      "h": 3,
+      "a": 2,
+      "ft": true,
       "msg_id": null
     },
     "eu_401882801": {
@@ -197,9 +197,9 @@
       "msg_id": null
     },
     "eu_401884733": {
-      "h": 0,
-      "a": 0,
-      "ft": false,
+      "h": 3,
+      "a": 1,
+      "ft": true,
       "msg_id": null
     },
     "eu_401884730": {
