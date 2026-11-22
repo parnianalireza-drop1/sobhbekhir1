@@ -1,6 +1,6 @@
 {
-  "last_morning_date": "",
-  "last_wake_notice_date": "2026-11-21",
+  "last_morning_date": "2026-11-22",
+  "last_wake_notice_date": "2026-11-22",
   "last_sleep_notice_date": "2026-11-21",
   "owner_chat_id": "30956754",
   "footer_text": "آخرین خبرهای شیراز",
@@ -83,10 +83,10 @@
       "msg_id": 541
     },
     "eu_401879232": {
-      "h": 0,
-      "a": 0,
-      "ft": false,
-      "msg_id": null
+      "h": 2,
+      "a": 2,
+      "ft": true,
+      "msg_id": 556
     },
     "eu_401882806": {
       "h": 3,
@@ -101,16 +101,16 @@
       "msg_id": 544
     },
     "eu_401882797": {
-      "h": 0,
-      "a": 0,
-      "ft": false,
-      "msg_id": null
+      "h": 1,
+      "a": 1,
+      "ft": true,
+      "msg_id": 557
     },
     "eu_401882798": {
-      "h": 0,
-      "a": 0,
-      "ft": false,
-      "msg_id": null
+      "h": 2,
+      "a": 1,
+      "ft": true,
+      "msg_id": 558
     },
     "eu_401882805": {
       "h": 0,
@@ -151,13 +151,61 @@
     "eu_401884729": {
       "h": 0,
       "a": 0,
-      "ft": false,
-      "msg_id": null
+      "ft": true,
+      "msg_id": 559
     },
     "eu_401884736": {
       "h": 1,
       "a": 1,
       "ft": true,
+      "msg_id": null
+    },
+    "eu_401879234": {
+      "h": 0,
+      "a": 0,
+      "ft": false,
+      "msg_id": null
+    },
+    "eu_401878755": {
+      "h": 0,
+      "a": 0,
+      "ft": false,
+      "msg_id": null
+    },
+    "eu_401882804": {
+      "h": 0,
+      "a": 0,
+      "ft": false,
+      "msg_id": null
+    },
+    "eu_401882800": {
+      "h": 0,
+      "a": 0,
+      "ft": false,
+      "msg_id": null
+    },
+    "eu_401882801": {
+      "h": 0,
+      "a": 0,
+      "ft": false,
+      "msg_id": null
+    },
+    "eu_401882803": {
+      "h": 0,
+      "a": 0,
+      "ft": false,
+      "msg_id": null
+    },
+    "eu_401884733": {
+      "h": 0,
+      "a": 0,
+      "ft": false,
+      "msg_id": null
+    },
+    "eu_401884730": {
+      "h": 0,
+      "a": 0,
+      "ft": false,
       "msg_id": null
     }
   }
