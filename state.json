@@ -329,10 +329,13 @@
       "msg_id": null
     },
     "ir_ls_1918596": {
-      "h": 0,
-      "a": 0,
-      "ft": false,
-      "msg_id": null
+      "h": 2,
+      "a": 2,
+      "ft": true,
+      "msg_id": 694
     }
+  },
+  "ig_story_first_seen": {
+    "shirazlastnews": {}
   }
 }
